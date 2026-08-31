@@ -1,0 +1,87 @@
+import type { ChatStreamEvent } from '@/lib/chat-types';
+
+function parseEventBlock(block: string): ChatStreamEvent | null {
+  let eventName = 'message';
+  const dataLines: string[] = [];
+
+  for (const line of block.split('\n')) {
+    if (line.startsWith(':')) continue;
+    if (line.startsWith('event:')) {
+      eventName = line.slice(6).trim();
+    } else if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) return null;
+
+  const data = JSON.parse(dataLines.join('\n')) as Record<string, unknown>;
+
+  if (eventName === 'delta' && typeof data.content === 'string') {
+    return { type: 'delta', content: data.content };
+  }
+
+  if (eventName === 'done') {
+    return {
+      type: 'done',
+      finishReason:
+        typeof data.finishReason === 'string' ? data.finishReason : 'stop',
+    };
+  }
+
+  if (
+    eventName === 'error' &&
+    typeof data.code === 'string' &&
+    typeof data.message === 'string'
+  ) {
+    return { type: 'error', code: data.code, message: data.message };
+  }
+
+  return null;
+}
+
+export async function readChatStream(
+  stream: ReadableStream<Uint8Array>,
+  onEvent: (event: ChatStreamEvent) => void,
+): Promise<void> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const consume = (flush = false) => {
+    buffer = buffer.replace(/\r\n/g, '\n');
+    let boundary = buffer.indexOf('\n\n');
+
+    while (boundary !== -1) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+
+      if (block.trim()) {
+        const event = parseEventBlock(block);
+        if (event) onEvent(event);
+      }
+
+      boundary = buffer.indexOf('\n\n');
+    }
+
+    if (flush && buffer.trim()) {
+      const event = parseEventBlock(buffer);
+      if (event) onEvent(event);
+      buffer = '';
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      consume();
+    }
+
+    buffer += decoder.decode();
+    consume(true);
+  } finally {
+    reader.releaseLock();
+  }
+}

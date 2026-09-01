@@ -317,6 +317,55 @@ body {
     @apply border-0 bg-transparent p-0 text-[13px] text-white/72;
   }
 
+  .structured-output-frame {
+    @apply max-w-full overflow-hidden rounded-2xl border border-white/8 bg-[#081011];
+  }
+
+  .structured-output-header {
+    @apply flex h-8 items-center border-b border-white/7 bg-white/[0.025] px-4 font-mono text-[10px] font-semibold tracking-[0.12em] text-white/35;
+  }
+
+  .structured-output {
+    @apply m-0 max-w-full overflow-x-auto whitespace-pre-wrap break-words bg-transparent p-4 font-mono text-[13px] leading-6 text-white/72;
+    scrollbar-color: rgb(255 255 255 / 12%) transparent;
+  }
+
+  .syntax-cmnt {
+    @apply italic text-slate-400;
+  }
+
+  .syntax-err,
+  .syntax-deleted {
+    @apply text-red-300;
+  }
+
+  .syntax-kwd,
+  .syntax-oper {
+    @apply text-rose-300;
+  }
+
+  .syntax-num,
+  .syntax-section,
+  .syntax-bool,
+  .syntax-type {
+    @apply text-sky-300;
+  }
+
+  .syntax-class,
+  .syntax-var {
+    @apply text-emerald-300;
+  }
+
+  .syntax-str,
+  .syntax-insert {
+    @apply text-amber-200;
+  }
+
+  .syntax-func,
+  .syntax-esc {
+    @apply text-violet-300;
+  }
+
   .markdown-body hr {
     @apply my-6 border-white/8;
   }
@@ -338,6 +387,46 @@ body {
   .composer-wrap {
     @apply relative px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5;
     background: linear-gradient(to top, #10191a 72%, rgb(16 25 26 / 0%));
+  }
+
+  .format-row {
+    @apply mx-auto mb-2 grid max-w-3xl grid-cols-[minmax(0,1fr)_auto] items-end gap-2 px-1 sm:gap-3;
+  }
+
+  .length-controls {
+    @apply flex min-w-0 items-end gap-2 sm:gap-3;
+  }
+
+  .format-control {
+    @apply flex flex-col gap-1;
+  }
+
+  .format-label {
+    @apply text-[11px] font-medium tracking-wide text-white/30;
+  }
+
+  .format-trigger {
+    @apply w-20 border-white/8 bg-white/[0.035] text-xs text-white/65 hover:bg-white/[0.055] focus-visible:border-emerald-300/30 focus-visible:ring-emerald-300/15 dark:bg-white/[0.035] dark:hover:bg-white/[0.055] sm:w-24;
+  }
+
+  .length-input {
+    @apply h-8 w-[4.5rem] rounded-lg border border-white/8 bg-white/[0.035] px-2.5 py-1 font-mono text-xs text-white/65 outline-none transition-colors focus-visible:border-emerald-300/30 focus-visible:ring-3 focus-visible:ring-emerald-300/15 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-red-300/40 aria-invalid:ring-3 aria-invalid:ring-red-300/10 sm:w-24;
+  }
+
+  .token-count-control {
+    @apply min-w-0;
+  }
+
+  .token-count {
+    @apply flex h-8 min-w-4 items-center font-mono text-xs tabular-nums text-white/55;
+  }
+
+  .format-menu {
+    @apply border-white/10 bg-[#172122] text-white shadow-xl shadow-black/30;
+  }
+
+  .format-option {
+    @apply text-xs text-white/65 focus:bg-emerald-300/10 focus:text-emerald-100;
   }
 
   .composer {

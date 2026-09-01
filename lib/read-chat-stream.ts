@@ -22,10 +22,17 @@ function parseEventBlock(block: string): ChatStreamEvent | null {
   }
 
   if (eventName === 'done') {
+    const outputTokens = data.outputTokens;
+
     return {
       type: 'done',
       finishReason:
         typeof data.finishReason === 'string' ? data.finishReason : 'stop',
+      ...(typeof outputTokens === 'number' &&
+      Number.isInteger(outputTokens) &&
+      outputTokens >= 0
+        ? { outputTokens }
+        : {}),
     };
   }
 

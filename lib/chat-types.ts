@@ -2,11 +2,15 @@ export type ChatRole = 'user' | 'assistant';
 
 export type ChatMessageStatus = 'streaming' | 'complete' | 'stopped' | 'error';
 
+export type ChatOutputFormat = 'text' | 'json' | 'xml' | 'yaml';
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
   content: string;
   status?: ChatMessageStatus;
+  format?: ChatOutputFormat;
+  outputTokens?: number;
 }
 
 export interface ApiChatMessage {
@@ -16,11 +20,13 @@ export interface ApiChatMessage {
 
 export interface ChatRequest {
   messages: ApiChatMessage[];
+  format?: ChatOutputFormat;
+  targetOutputTokens?: number;
 }
 
 export type ChatStreamEvent =
   | { type: 'delta'; content: string }
-  | { type: 'done'; finishReason: string }
+  | { type: 'done'; finishReason: string; outputTokens?: number }
   | { type: 'error'; code: string; message: string };
 
 export interface ChatErrorPayload {

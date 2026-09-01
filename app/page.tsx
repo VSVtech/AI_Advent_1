@@ -1,5 +1,6 @@
 'use client';
 
+import { tokenize, type ShjToken } from '@speed-highlight/core';
 import {
   ArrowUp,
   Bot,
@@ -29,11 +30,26 @@ import {
   MessageFooter,
   MessageHeader,
 } from '@/components/ui/message';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  calculateMaxOutputTokens,
+  DEFAULT_TARGET_OUTPUT_TOKENS,
+  isValidTargetOutputTokens,
+  MAX_TARGET_OUTPUT_TOKENS,
+  MIN_TARGET_OUTPUT_TOKENS,
+} from '@/lib/chat-constraints';
 import type {
   ApiChatMessage,
   ChatErrorPayload,
   ChatMessage,
+  ChatOutputFormat,
   ChatStreamEvent,
 } from '@/lib/chat-types';
 import { readChatStream } from '@/lib/read-chat-stream';
@@ -42,6 +58,16 @@ const suggestions = [
   'Объясни сложную тему простыми словами',
   'Помоги придумать структуру проекта',
   'Разбери идею и найди слабые места',
+];
+
+const outputFormats: Array<{
+  value: ChatOutputFormat;
+  label: string;
+}> = [
+  { value: 'text', label: 'Text' },
+  { value: 'json', label: 'JSON' },
+  { value: 'xml', label: 'XML' },
+  { value: 'yaml', label: 'YAML' },
 ];
 
 function createId(): string {
@@ -71,9 +97,73 @@ function MarkdownMessage({ content }: { content: string }) {
   );
 }
 
+type StructuredFormat = Exclude<ChatOutputFormat, 'text'>;
+
+type HighlightToken = {
+  text: string;
+  type?: ShjToken;
+};
+
+function StructuredMessage({
+  content,
+  format,
+}: {
+  content: string;
+  format: StructuredFormat;
+}) {
+  const [tokens, setTokens] = useState<HighlightToken[]>([{ text: content }]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const nextTokens: HighlightToken[] = [];
+
+    void tokenize(content, format, (text, type) => {
+      if (text) nextTokens.push({ text, type });
+    }).then(() => {
+      if (!cancelled) {
+        setTokens(nextTokens.length ? nextTokens : [{ text: content }]);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [content, format]);
+
+  return (
+    <div className="structured-output-frame">
+      <div className="structured-output-header">
+        <span>{format.toUpperCase()}</span>
+      </div>
+      <pre className="structured-output">
+        <code>
+          {tokens.map((token, index) => (
+            <span
+              key={`${index}-${token.type ?? 'plain'}`}
+              className={token.type ? `syntax-${token.type}` : undefined}
+            >
+              {token.text}
+            </span>
+          ))}
+        </code>
+      </pre>
+    </div>
+  );
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  const [outputFormat, setOutputFormat] = useState<ChatOutputFormat>('text');
+  const [targetOutputTokens, setTargetOutputTokens] = useState(
+    String(DEFAULT_TARGET_OUTPUT_TOKENS),
+  );
+  const parsedTargetOutputTokens = Number(targetOutputTokens);
+  const calculatedMaxOutputTokens = isValidTargetOutputTokens(
+    parsedTargetOutputTokens,
+  )
+    ? calculateMaxOutputTokens(parsedTargetOutputTokens)
+    : null;
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -113,6 +203,13 @@ export default function Home() {
     const content = (rawContent ?? input).trim();
     if (!content || isGenerating) return;
 
+    if (!isValidTargetOutputTokens(parsedTargetOutputTokens)) {
+      setError(
+        `Укажите целевую длину от ${MIN_TARGET_OUTPUT_TOKENS} до ${MAX_TARGET_OUTPUT_TOKENS} токенов.`,
+      );
+      return;
+    }
+
     const userMessage: ChatMessage = {
       id: createId(),
       role: 'user',
@@ -124,6 +221,7 @@ export default function Home() {
       role: 'assistant',
       content: '',
       status: 'streaming',
+      format: outputFormat,
     };
     const requestMessages = toApiMessages([...messages, userMessage]);
     const controller = new AbortController();
@@ -138,7 +236,11 @@ export default function Home() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: requestMessages }),
+        body: JSON.stringify({
+          messages: requestMessages,
+          format: outputFormat,
+          targetOutputTokens: parsedTargetOutputTokens,
+        }),
         signal: controller.signal,
       });
 
@@ -168,6 +270,9 @@ export default function Home() {
           updateAssistant(assistantMessage.id, (message) => ({
             ...message,
             status: 'complete',
+            ...(event.outputTokens === undefined
+              ? {}
+              : { outputTokens: event.outputTokens }),
           }));
         } else if (event.type === 'error') {
           throw new Error(event.message);
@@ -225,6 +330,13 @@ export default function Home() {
   const latestAssistant = [...messages]
     .reverse()
     .find((message) => message.role === 'assistant');
+  const latestOutputTokens = [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === 'assistant' &&
+        typeof message.outputTokens === 'number',
+    )?.outputTokens;
 
   return (
     <main className="chat-shell">
@@ -327,6 +439,11 @@ export default function Home() {
                             <p className="whitespace-pre-wrap">
                               {message.content}
                             </p>
+                          ) : message.format && message.format !== 'text' ? (
+                            <StructuredMessage
+                              content={message.content}
+                              format={message.format}
+                            />
                           ) : (
                             <div className="markdown-body">
                               <MarkdownMessage content={message.content} />
@@ -371,6 +488,100 @@ export default function Home() {
             </Alert>
           ) : null}
 
+          <div className="format-row">
+            <div className="length-controls">
+              <div className="format-control items-start">
+                <label className="format-label" htmlFor="target-output-tokens">
+                  <span className="sm:hidden">Целевая</span>
+                  <span className="hidden sm:inline">Целевая длина</span>
+                </label>
+                <input
+                  id="target-output-tokens"
+                  type="number"
+                  inputMode="numeric"
+                  min={MIN_TARGET_OUTPUT_TOKENS}
+                  max={MAX_TARGET_OUTPUT_TOKENS}
+                  step={50}
+                  value={targetOutputTokens}
+                  disabled={isGenerating}
+                  aria-invalid={
+                    !isValidTargetOutputTokens(parsedTargetOutputTokens) ||
+                    undefined
+                  }
+                  className="length-input"
+                  onChange={(event) =>
+                    setTargetOutputTokens(event.target.value)
+                  }
+                />
+              </div>
+
+              <div className="format-control token-count-control items-start">
+                <span className="format-label">
+                  <span className="sm:hidden">Максимум</span>
+                  <span className="hidden sm:inline">Макс. токенов</span>
+                </span>
+                <output
+                  className="token-count"
+                  aria-label="Рассчитанная максимальная длина ответа в токенах"
+                  aria-live="polite"
+                  title="Целевая длина плюс запас: 20%, но не менее 500 и не более 2000 токенов"
+                >
+                  {calculatedMaxOutputTokens ?? '—'}
+                </output>
+              </div>
+
+              <div className="format-control token-count-control items-start">
+                <span className="format-label">
+                  <span className="sm:hidden">Факт</span>
+                  <span className="hidden sm:inline">Фактически</span>
+                </span>
+                <output
+                  className="token-count"
+                  aria-label="Фактическая длина последнего ответа в токенах"
+                  aria-live="polite"
+                  title="Фактическое число выходных токенов по данным DeepSeek"
+                >
+                  {latestOutputTokens ?? '—'}
+                </output>
+              </div>
+            </div>
+
+            <div className="format-control items-end">
+              <span className="format-label">Формат ответа</span>
+              <Select
+                value={outputFormat}
+                disabled={isGenerating}
+                onValueChange={(value) => {
+                  if (
+                    typeof value === 'string' &&
+                    outputFormats.some((option) => option.value === value)
+                  ) {
+                    setOutputFormat(value as ChatOutputFormat);
+                  }
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="format-trigger"
+                  aria-label="Формат ответа"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start" className="format-menu">
+                  {outputFormats.map((option) => (
+                    <SelectItem
+                      key={option.value}
+                      value={option.value}
+                      className="format-option"
+                    >
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           <form className="composer" onSubmit={handleSubmit}>
             <Textarea
               ref={textareaRef}
@@ -398,7 +609,10 @@ export default function Home() {
                 size="icon-lg"
                 className="send-button"
                 aria-label="Отправить сообщение"
-                disabled={!input.trim()}
+                disabled={
+                  !input.trim() ||
+                  !isValidTargetOutputTokens(parsedTargetOutputTokens)
+                }
               >
                 <ArrowUp className="size-[18px]" />
               </Button>

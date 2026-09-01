@@ -21,7 +21,7 @@ describe('readChatStream', () => {
       ': keep-alive\r\n\r\nevent: del',
       'ta\r\ndata: {"content":"При"}\r\n\r\n',
       'event: delta\ndata: {"content":"вет"}\n\n',
-      'event: done\ndata: {"finishReason":"stop"}\n\n',
+      'event: done\ndata: {"finishReason":"stop","outputTokens":2}\n\n',
     ]);
 
     await readChatStream(stream, (event) => events.push(event));
@@ -29,7 +29,7 @@ describe('readChatStream', () => {
     expect(events).toEqual([
       { type: 'delta', content: 'При' },
       { type: 'delta', content: 'вет' },
-      { type: 'done', finishReason: 'stop' },
+      { type: 'done', finishReason: 'stop', outputTokens: 2 },
     ]);
   });
 

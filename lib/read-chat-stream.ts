@@ -17,6 +17,19 @@ function parseEventBlock(block: string): ChatStreamEvent | null {
 
   const data = JSON.parse(dataLines.join('\n')) as Record<string, unknown>;
 
+  if (eventName === 'prepared' && typeof data.prompt === 'string') {
+    const promptOutputTokens = data.promptOutputTokens;
+    return {
+      type: 'prepared',
+      prompt: data.prompt,
+      ...(typeof promptOutputTokens === 'number' &&
+      Number.isInteger(promptOutputTokens) &&
+      promptOutputTokens >= 0
+        ? { promptOutputTokens }
+        : {}),
+    };
+  }
+
   if (eventName === 'delta' && typeof data.content === 'string') {
     return { type: 'delta', content: data.content };
   }

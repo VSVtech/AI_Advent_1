@@ -149,8 +149,115 @@ body {
     @apply flex h-dvh min-h-[520px] items-center justify-center p-0 sm:p-4;
   }
 
+  .app-frame {
+    @apply h-full w-full overflow-hidden border-white/8 bg-[#10191a]/92 shadow-2xl shadow-black/30 backdrop-blur-xl sm:h-[min(900px,calc(100dvh-32px))] sm:max-w-6xl sm:rounded-[28px] sm:border;
+  }
+
+  .app-sidebar {
+    @apply shrink-0 border-b border-white/7 bg-[#0d1617]/75 md:w-44 md:border-b-0 md:border-r;
+  }
+
+  .section-panel {
+    @apply min-h-0 min-w-0 overflow-hidden;
+  }
+
   .chat-frame {
-    @apply grid h-full w-full grid-rows-[68px_minmax(0,1fr)_auto] overflow-hidden border-white/8 bg-[#10191a]/92 shadow-2xl shadow-black/30 backdrop-blur-xl sm:h-[min(900px,calc(100dvh-32px))] sm:max-w-5xl sm:rounded-[28px] sm:border;
+    @apply grid h-full w-full grid-rows-[68px_minmax(0,1fr)_auto] overflow-hidden;
+  }
+
+  .comparison-frame {
+    @apply grid h-full w-full grid-rows-[68px_auto_minmax(0,1fr)] overflow-hidden;
+  }
+
+  .comparison-composer {
+    @apply space-y-2 px-4 py-3;
+  }
+
+  .comparison-composer-row {
+    @apply flex items-end gap-3;
+  }
+
+  .comparison-user-input {
+    @apply max-h-32 min-h-16 resize-none;
+  }
+
+  .comparison-hint {
+    @apply text-[11px] leading-4 text-white/40;
+  }
+
+  .comparison-columns {
+    @apply min-h-0 overflow-auto px-4 pb-4;
+    scrollbar-color: rgb(255 255 255 / 15%) transparent;
+    scrollbar-width: thin;
+  }
+
+  .comparison-grid {
+    @apply grid h-full min-h-[420px] gap-3;
+    grid-template-columns: repeat(5, minmax(260px, 1fr));
+  }
+
+  .comparison-column {
+    @apply flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-white/8 bg-white/[0.02];
+  }
+
+  .comparison-column-header {
+    @apply flex shrink-0 flex-col gap-2 border-b border-white/7 p-3;
+  }
+
+  .comparison-column-title {
+    @apply flex min-h-9 items-start gap-2 text-xs font-medium leading-5 text-white/80;
+  }
+
+  .comparison-column-title > span {
+    @apply flex size-5 shrink-0 items-center justify-center rounded-md bg-emerald-300/10 font-mono text-[11px] text-emerald-200;
+  }
+
+  .comparison-system-input {
+    @apply h-24 overflow-y-auto font-mono leading-4 text-white/65;
+    field-sizing: fixed;
+  }
+
+  .comparison-description {
+    @apply min-h-12 text-[11px] leading-4 text-white/40;
+  }
+
+  .comparison-status {
+    @apply text-[11px] text-emerald-200/65;
+  }
+
+  .comparison-messages {
+    @apply min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-3;
+    scrollbar-color: rgb(255 255 255 / 12%) transparent;
+    scrollbar-width: thin;
+  }
+
+  .comparison-turn {
+    @apply min-w-0 space-y-2;
+  }
+
+  .comparison-user-message {
+    @apply whitespace-pre-wrap break-words rounded-lg bg-white/[0.045] p-2 text-xs leading-5 text-white/70;
+  }
+
+  .comparison-answer.markdown-body {
+    @apply break-words text-[13px] leading-6;
+  }
+
+  .comparison-placeholder,
+  .comparison-usage {
+    @apply text-[11px] leading-5 text-white/40;
+  }
+
+  .comparison-prompt-details {
+    @apply rounded-lg border border-emerald-300/10 p-2 text-[11px] leading-5 text-white/55;
+  }
+
+  .comparison-prompt-trigger {
+    @apply flex w-full cursor-pointer items-center justify-between gap-2 text-left text-emerald-200/65 outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40;
+  }
+
+  .comparison-error {
+    @apply text-xs leading-5 text-red-200;
   }
 
   .chat-header {
@@ -427,6 +534,31 @@ body {
 
   .format-option {
     @apply text-xs text-white/65 focus:bg-emerald-300/10 focus:text-emerald-100;
+  }
+
+  .system-prompt-control {
+    @apply mx-auto mb-3 max-w-3xl space-y-2;
+  }
+
+  .system-prompt-header {
+    @apply flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1;
+  }
+
+  .system-prompt-toggle {
+    @apply flex cursor-pointer items-center gap-2 text-[11px] leading-4 text-white/55 has-disabled:cursor-not-allowed has-disabled:opacity-50;
+  }
+
+  .system-prompt-input {
+    @apply h-24 max-h-40 min-h-20 resize-y overflow-y-auto rounded-xl border-white/8 bg-white/[0.025] px-3 py-2 font-mono text-xs leading-5 text-white/75 placeholder:text-white/30 read-only:text-white/45 focus-visible:border-emerald-300/30 focus-visible:ring-emerald-300/15 md:text-xs dark:bg-white/[0.025];
+    field-sizing: fixed;
+  }
+
+  .system-prompt-hint {
+    @apply px-1 text-[11px] leading-4 text-white/40;
+  }
+
+  .system-prompt-error {
+    @apply px-1 text-[11px] leading-4 text-red-200;
   }
 
   .composer {

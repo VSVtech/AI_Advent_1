@@ -22,9 +22,12 @@ export interface ChatRequest {
   messages: ApiChatMessage[];
   format?: ChatOutputFormat;
   targetOutputTokens?: number;
+  useSelectorSystemPrompt?: boolean;
+  customSystemPrompt?: string;
 }
 
 export type ChatStreamEvent =
+  | { type: 'prepared'; prompt: string; promptOutputTokens?: number }
   | { type: 'delta'; content: string }
   | { type: 'done'; finishReason: string; outputTokens?: number }
   | { type: 'error'; code: string; message: string };

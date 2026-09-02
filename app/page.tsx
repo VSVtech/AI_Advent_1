@@ -7,7 +7,6 @@ import {
   CircleAlert,
   Sparkles,
   Square,
-  Trash2,
   UserRound,
 } from 'lucide-react';
 import {
@@ -17,12 +16,13 @@ import {
   useRef,
   useState,
 } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
+import { AppSections, type AppSection } from '@/components/app-sections';
+import { MarkdownMessage } from '@/components/markdown-message';
+import { SectionHeader } from '@/components/section-header';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Message,
   MessageAvatar,
@@ -45,11 +45,17 @@ import {
   MAX_TARGET_OUTPUT_TOKENS,
   MIN_TARGET_OUTPUT_TOKENS,
 } from '@/lib/chat-constraints';
+import {
+  buildSelectorSystemPrompt,
+  isValidCustomSystemPrompt,
+  MAX_CUSTOM_SYSTEM_PROMPT_LENGTH,
+} from '@/lib/chat-prompts';
 import type {
   ApiChatMessage,
   ChatErrorPayload,
   ChatMessage,
   ChatOutputFormat,
+  ChatRequest,
   ChatStreamEvent,
 } from '@/lib/chat-types';
 import { readChatStream } from '@/lib/read-chat-stream';
@@ -78,23 +84,6 @@ function toApiMessages(messages: ChatMessage[]): ApiChatMessage[] {
   return messages
     .filter((message) => message.content.trim().length > 0)
     .map(({ role, content }) => ({ role, content }));
-}
-
-function MarkdownMessage({ content }: { content: string }) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        a: ({ children, ...props }) => (
-          <a {...props} target="_blank" rel="noreferrer noopener">
-            {children}
-          </a>
-        ),
-      }}
-    >
-      {content}
-    </ReactMarkdown>
-  );
 }
 
 type StructuredFormat = Exclude<ChatOutputFormat, 'text'>;
@@ -152,13 +141,25 @@ function StructuredMessage({
 }
 
 export default function Home() {
+  const [activeSection, setActiveSection] = useState<AppSection>('chat');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [outputFormat, setOutputFormat] = useState<ChatOutputFormat>('text');
   const [targetOutputTokens, setTargetOutputTokens] = useState(
     String(DEFAULT_TARGET_OUTPUT_TOKENS),
   );
+  const [useSelectorSystemPrompt, setUseSelectorSystemPrompt] = useState(true);
+  const [customSystemPrompt, setCustomSystemPrompt] = useState<string | null>(
+    null,
+  );
   const parsedTargetOutputTokens = Number(targetOutputTokens);
+  const generatedSystemPrompt = isValidTargetOutputTokens(
+    parsedTargetOutputTokens,
+  )
+    ? buildSelectorSystemPrompt(outputFormat, parsedTargetOutputTokens)
+    : '';
+  const hasInvalidCustomSystemPrompt =
+    !useSelectorSystemPrompt && !isValidCustomSystemPrompt(customSystemPrompt);
   const calculatedMaxOutputTokens = isValidTargetOutputTokens(
     parsedTargetOutputTokens,
   )
@@ -171,11 +172,12 @@ export default function Home() {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
+    if (activeSection !== 'chat') return;
     endOfMessagesRef.current?.scrollIntoView({
       behavior: isGenerating ? 'auto' : 'smooth',
       block: 'end',
     });
-  }, [messages, isGenerating]);
+  }, [messages, isGenerating, activeSection]);
 
   useEffect(() => {
     return () => abortControllerRef.current?.abort();
@@ -210,6 +212,13 @@ export default function Home() {
       return;
     }
 
+    if (hasInvalidCustomSystemPrompt) {
+      setError(
+        `Введите системный промпт от 1 до ${MAX_CUSTOM_SYSTEM_PROMPT_LENGTH} символов.`,
+      );
+      return;
+    }
+
     const userMessage: ChatMessage = {
       id: createId(),
       role: 'user',
@@ -240,7 +249,11 @@ export default function Home() {
           messages: requestMessages,
           format: outputFormat,
           targetOutputTokens: parsedTargetOutputTokens,
-        }),
+          useSelectorSystemPrompt,
+          ...(!useSelectorSystemPrompt
+            ? { customSystemPrompt: customSystemPrompt ?? '' }
+            : {}),
+        } satisfies ChatRequest),
         signal: controller.signal,
       });
 
@@ -340,299 +353,341 @@ export default function Home() {
 
   return (
     <main className="chat-shell">
-      <div className="chat-frame">
-        <header className="chat-header">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="brand-mark" aria-hidden="true">
-              <Sparkles className="size-[18px]" />
-            </span>
-            <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-white">
-                DeepSeek Chat
-              </h1>
-              <p className="truncate text-xs text-white/40">
-                Локальный AI-диалог
-              </p>
-            </div>
-          </div>
+      <AppSections
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+      >
+        <div className="chat-frame">
+          <SectionHeader
+            title="Чат"
+            subtitle="Локальный AI-диалог"
+            clearLabel="Очистить диалог"
+            canClear={messages.length > 0}
+            onClear={clearChat}
+          />
 
-          <div className="flex items-center gap-2">
-            <Badge className="model-badge" variant="outline">
-              <span className="status-dot" aria-hidden="true" />
-              <span className="hidden sm:inline">V4 Flash</span>
-              <span className="sm:hidden">V4</span>
-            </Badge>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="header-action"
-              aria-label="Очистить диалог"
-              disabled={messages.length === 0}
-              onClick={clearChat}
-            >
-              <Trash2 />
-            </Button>
-          </div>
-        </header>
-
-        <section className="chat-content" aria-label="История диалога">
-          {messages.length === 0 ? (
-            <div className="empty-state">
-              <span className="empty-icon" aria-hidden="true">
-                <Bot className="size-7" />
-              </span>
-              <div className="space-y-2 text-center">
-                <h2 className="text-xl font-semibold tracking-[-0.025em] text-white sm:text-2xl">
-                  О чём поговорим?
-                </h2>
-                <p className="mx-auto max-w-md text-sm leading-6 text-white/45">
-                  Ответы приходят напрямую из DeepSeek. История останется только
-                  до обновления страницы.
-                </p>
-              </div>
-
-              <div className="suggestion-grid">
-                {suggestions.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    className="suggestion-card"
-                    disabled={isGenerating}
-                    onClick={() => void sendMessage(suggestion)}
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="messages-list">
-              {messages.map((message) => {
-                const isUser = message.role === 'user';
-
-                return (
-                  <Message
-                    key={message.id}
-                    align={isUser ? 'end' : 'start'}
-                    className="message-row"
-                  >
-                    <MessageAvatar
-                      className={isUser ? 'user-avatar' : 'assistant-avatar'}
-                      aria-hidden="true"
-                    >
-                      {isUser ? <UserRound /> : <Sparkles />}
-                    </MessageAvatar>
-                    <MessageContent
-                      className={isUser ? 'items-end' : undefined}
-                    >
-                      <MessageHeader className="message-author">
-                        {isUser ? 'Вы' : 'DeepSeek'}
-                      </MessageHeader>
-                      <div
-                        className={
-                          isUser ? 'user-message' : 'assistant-message'
-                        }
-                      >
-                        {message.content ? (
-                          isUser ? (
-                            <p className="whitespace-pre-wrap">
-                              {message.content}
-                            </p>
-                          ) : message.format && message.format !== 'text' ? (
-                            <StructuredMessage
-                              content={message.content}
-                              format={message.format}
-                            />
-                          ) : (
-                            <div className="markdown-body">
-                              <MarkdownMessage content={message.content} />
-                            </div>
-                          )
-                        ) : (
-                          <span
-                            className="typing-indicator"
-                            aria-label="DeepSeek отвечает"
-                          >
-                            <i />
-                            <i />
-                            <i />
-                          </span>
-                        )}
-                      </div>
-                      {!isUser && message.status === 'stopped' ? (
-                        <MessageFooter className="message-status">
-                          Генерация остановлена
-                        </MessageFooter>
-                      ) : null}
-                      {!isUser && message.status === 'error' ? (
-                        <MessageFooter className="message-status text-red-300/60">
-                          Ответ прерван
-                        </MessageFooter>
-                      ) : null}
-                    </MessageContent>
-                  </Message>
-                );
-              })}
-              <div ref={endOfMessagesRef} className="h-px" />
-            </div>
-          )}
-        </section>
-
-        <footer className="composer-wrap">
-          {error ? (
-            <Alert variant="destructive" className="error-alert">
-              <CircleAlert />
-              <AlertTitle>Не удалось получить ответ</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
-
-          <div className="format-row">
-            <div className="length-controls">
-              <div className="format-control items-start">
-                <label className="format-label" htmlFor="target-output-tokens">
-                  <span className="sm:hidden">Целевая</span>
-                  <span className="hidden sm:inline">Целевая длина</span>
-                </label>
-                <input
-                  id="target-output-tokens"
-                  type="number"
-                  inputMode="numeric"
-                  min={MIN_TARGET_OUTPUT_TOKENS}
-                  max={MAX_TARGET_OUTPUT_TOKENS}
-                  step={50}
-                  value={targetOutputTokens}
-                  disabled={isGenerating}
-                  aria-invalid={
-                    !isValidTargetOutputTokens(parsedTargetOutputTokens) ||
-                    undefined
-                  }
-                  className="length-input"
-                  onChange={(event) =>
-                    setTargetOutputTokens(event.target.value)
-                  }
-                />
-              </div>
-
-              <div className="format-control token-count-control items-start">
-                <span className="format-label">
-                  <span className="sm:hidden">Максимум</span>
-                  <span className="hidden sm:inline">Макс. токенов</span>
+          <section className="chat-content" aria-label="История диалога">
+            {messages.length === 0 ? (
+              <div className="empty-state">
+                <span className="empty-icon" aria-hidden="true">
+                  <Bot className="size-7" />
                 </span>
-                <output
-                  className="token-count"
-                  aria-label="Рассчитанная максимальная длина ответа в токенах"
-                  aria-live="polite"
-                  title="Целевая длина плюс запас: 20%, но не менее 500 и не более 2000 токенов"
-                >
-                  {calculatedMaxOutputTokens ?? '—'}
-                </output>
-              </div>
+                <div className="space-y-2 text-center">
+                  <h2 className="text-xl font-semibold tracking-[-0.025em] text-white sm:text-2xl">
+                    О чём поговорим?
+                  </h2>
+                  <p className="mx-auto max-w-md text-sm leading-6 text-white/45">
+                    Ответы приходят напрямую из DeepSeek. История останется
+                    только до обновления страницы.
+                  </p>
+                </div>
 
-              <div className="format-control token-count-control items-start">
-                <span className="format-label">
-                  <span className="sm:hidden">Факт</span>
-                  <span className="hidden sm:inline">Фактически</span>
-                </span>
-                <output
-                  className="token-count"
-                  aria-label="Фактическая длина последнего ответа в токенах"
-                  aria-live="polite"
-                  title="Фактическое число выходных токенов по данным DeepSeek"
-                >
-                  {latestOutputTokens ?? '—'}
-                </output>
-              </div>
-            </div>
-
-            <div className="format-control items-end">
-              <span className="format-label">Формат ответа</span>
-              <Select
-                value={outputFormat}
-                disabled={isGenerating}
-                onValueChange={(value) => {
-                  if (
-                    typeof value === 'string' &&
-                    outputFormats.some((option) => option.value === value)
-                  ) {
-                    setOutputFormat(value as ChatOutputFormat);
-                  }
-                }}
-              >
-                <SelectTrigger
-                  size="sm"
-                  className="format-trigger"
-                  aria-label="Формат ответа"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="start" className="format-menu">
-                  {outputFormats.map((option) => (
-                    <SelectItem
-                      key={option.value}
-                      value={option.value}
-                      className="format-option"
+                <div className="suggestion-grid">
+                  {suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      className="suggestion-card"
+                      disabled={isGenerating}
+                      onClick={() => void sendMessage(suggestion)}
                     >
-                      {option.label}
-                    </SelectItem>
+                      {suggestion}
+                    </button>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <form className="composer" onSubmit={handleSubmit}>
-            <Textarea
-              ref={textareaRef}
-              aria-label="Сообщение для DeepSeek"
-              placeholder="Напишите сообщение…"
-              rows={1}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={handleKeyDown}
-              className="composer-input"
-            />
-            {isGenerating ? (
-              <Button
-                type="button"
-                size="icon-lg"
-                className="stop-button"
-                aria-label="Остановить генерацию"
-                onClick={stopGeneration}
-              >
-                <Square className="size-3.5 fill-current" />
-              </Button>
+                </div>
+              </div>
             ) : (
-              <Button
-                type="submit"
-                size="icon-lg"
-                className="send-button"
-                aria-label="Отправить сообщение"
-                disabled={
-                  !input.trim() ||
-                  !isValidTargetOutputTokens(parsedTargetOutputTokens)
-                }
-              >
-                <ArrowUp className="size-[18px]" />
-              </Button>
-            )}
-          </form>
-          <p className="composer-hint">
-            Enter — отправить · Shift + Enter — новая строка
-          </p>
-        </footer>
+              <div className="messages-list">
+                {messages.map((message) => {
+                  const isUser = message.role === 'user';
 
-        <output className="sr-only" aria-live="polite" aria-atomic="true">
-          {isGenerating
-            ? 'DeepSeek отвечает'
-            : latestAssistant?.status === 'complete'
-              ? 'Ответ DeepSeek завершён'
-              : latestAssistant?.status === 'stopped'
-                ? 'Генерация остановлена'
-                : ''}
-        </output>
-      </div>
+                  return (
+                    <Message
+                      key={message.id}
+                      align={isUser ? 'end' : 'start'}
+                      className="message-row"
+                    >
+                      <MessageAvatar
+                        className={isUser ? 'user-avatar' : 'assistant-avatar'}
+                        aria-hidden="true"
+                      >
+                        {isUser ? <UserRound /> : <Sparkles />}
+                      </MessageAvatar>
+                      <MessageContent
+                        className={isUser ? 'items-end' : undefined}
+                      >
+                        <MessageHeader className="message-author">
+                          {isUser ? 'Вы' : 'DeepSeek'}
+                        </MessageHeader>
+                        <div
+                          className={
+                            isUser ? 'user-message' : 'assistant-message'
+                          }
+                        >
+                          {message.content ? (
+                            isUser ? (
+                              <p className="whitespace-pre-wrap">
+                                {message.content}
+                              </p>
+                            ) : message.format && message.format !== 'text' ? (
+                              <StructuredMessage
+                                content={message.content}
+                                format={message.format}
+                              />
+                            ) : (
+                              <div className="markdown-body">
+                                <MarkdownMessage content={message.content} />
+                              </div>
+                            )
+                          ) : (
+                            <span
+                              className="typing-indicator"
+                              aria-label="DeepSeek отвечает"
+                            >
+                              <i />
+                              <i />
+                              <i />
+                            </span>
+                          )}
+                        </div>
+                        {!isUser && message.status === 'stopped' ? (
+                          <MessageFooter className="message-status">
+                            Генерация остановлена
+                          </MessageFooter>
+                        ) : null}
+                        {!isUser && message.status === 'error' ? (
+                          <MessageFooter className="message-status text-red-300/60">
+                            Ответ прерван
+                          </MessageFooter>
+                        ) : null}
+                      </MessageContent>
+                    </Message>
+                  );
+                })}
+                <div ref={endOfMessagesRef} className="h-px" />
+              </div>
+            )}
+          </section>
+
+          <footer className="composer-wrap">
+            {error ? (
+              <Alert variant="destructive" className="error-alert">
+                <CircleAlert />
+                <AlertTitle>Не удалось получить ответ</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            <div className="format-row">
+              <div className="length-controls">
+                <div className="format-control items-start">
+                  <label
+                    className="format-label"
+                    htmlFor="target-output-tokens"
+                  >
+                    <span className="sm:hidden">Целевая</span>
+                    <span className="hidden sm:inline">Целевая длина</span>
+                  </label>
+                  <input
+                    id="target-output-tokens"
+                    type="number"
+                    inputMode="numeric"
+                    min={MIN_TARGET_OUTPUT_TOKENS}
+                    max={MAX_TARGET_OUTPUT_TOKENS}
+                    step={50}
+                    value={targetOutputTokens}
+                    disabled={isGenerating}
+                    aria-invalid={
+                      !isValidTargetOutputTokens(parsedTargetOutputTokens) ||
+                      undefined
+                    }
+                    className="length-input"
+                    onChange={(event) =>
+                      setTargetOutputTokens(event.target.value)
+                    }
+                  />
+                </div>
+
+                <div className="format-control token-count-control items-start">
+                  <span className="format-label">
+                    <span className="sm:hidden">Максимум</span>
+                    <span className="hidden sm:inline">Макс. токенов</span>
+                  </span>
+                  <output
+                    className="token-count"
+                    aria-label="Рассчитанная максимальная длина ответа в токенах"
+                    aria-live="polite"
+                    title="Целевая длина плюс запас: 20%, но не менее 500 и не более 2000 токенов"
+                  >
+                    {calculatedMaxOutputTokens ?? '—'}
+                  </output>
+                </div>
+
+                <div className="format-control token-count-control items-start">
+                  <span className="format-label">
+                    <span className="sm:hidden">Факт</span>
+                    <span className="hidden sm:inline">Фактически</span>
+                  </span>
+                  <output
+                    className="token-count"
+                    aria-label="Фактическая длина последнего ответа в токенах"
+                    aria-live="polite"
+                    title="Фактическое число выходных токенов по данным DeepSeek"
+                  >
+                    {latestOutputTokens ?? '—'}
+                  </output>
+                </div>
+              </div>
+
+              <div className="format-control items-end">
+                <span className="format-label">Формат ответа</span>
+                <Select
+                  value={outputFormat}
+                  disabled={isGenerating}
+                  onValueChange={(value) => {
+                    if (
+                      typeof value === 'string' &&
+                      outputFormats.some((option) => option.value === value)
+                    ) {
+                      setOutputFormat(value as ChatOutputFormat);
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="format-trigger"
+                    aria-label="Формат ответа"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="start" className="format-menu">
+                    {outputFormats.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        className="format-option"
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="system-prompt-control">
+              <div className="system-prompt-header">
+                <label className="format-label" htmlFor="system-prompt">
+                  Системный промпт
+                </label>
+                <label
+                  className="system-prompt-toggle"
+                  htmlFor="use-selector-system-prompt"
+                >
+                  <Checkbox
+                    id="use-selector-system-prompt"
+                    checked={useSelectorSystemPrompt}
+                    disabled={isGenerating}
+                    onCheckedChange={(checked) => {
+                      if (!checked && customSystemPrompt === null) {
+                        setCustomSystemPrompt(generatedSystemPrompt);
+                      }
+                      setUseSelectorSystemPrompt(checked);
+                    }}
+                  />
+                  Использовать промпт из селекторов
+                </label>
+              </div>
+              <Textarea
+                id="system-prompt"
+                rows={3}
+                value={
+                  useSelectorSystemPrompt
+                    ? generatedSystemPrompt
+                    : (customSystemPrompt ?? '')
+                }
+                readOnly={useSelectorSystemPrompt || isGenerating}
+                maxLength={MAX_CUSTOM_SYSTEM_PROMPT_LENGTH}
+                onChange={(event) => setCustomSystemPrompt(event.target.value)}
+                aria-describedby={
+                  hasInvalidCustomSystemPrompt
+                    ? 'system-prompt-hint system-prompt-error'
+                    : 'system-prompt-hint'
+                }
+                aria-invalid={hasInvalidCustomSystemPrompt || undefined}
+                placeholder={
+                  useSelectorSystemPrompt
+                    ? 'Укажите корректную целевую длину для предпросмотра.'
+                    : 'Задайте роль, стиль, формат и длину ответа…'
+                }
+                className="system-prompt-input"
+              />
+              <p id="system-prompt-hint" className="system-prompt-hint">
+                {useSelectorSystemPrompt
+                  ? 'Промпт обновляется при изменении формата и целевой длины. Снимите галочку, чтобы редактировать.'
+                  : 'Ваш текст заменяет инструкции из селекторов. Проверка формата и макс. токенов действуют — опишите нужный формат и длину в промпте.'}
+              </p>
+              {hasInvalidCustomSystemPrompt ? (
+                <p id="system-prompt-error" className="system-prompt-error">
+                  Введите системный промпт от 1 до{' '}
+                  {MAX_CUSTOM_SYSTEM_PROMPT_LENGTH} символов.
+                </p>
+              ) : null}
+            </div>
+
+            <form className="composer" onSubmit={handleSubmit}>
+              <Textarea
+                ref={textareaRef}
+                aria-label="Сообщение для DeepSeek"
+                placeholder="Напишите сообщение…"
+                rows={1}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={handleKeyDown}
+                className="composer-input"
+              />
+              {isGenerating ? (
+                <Button
+                  type="button"
+                  size="icon-lg"
+                  className="stop-button"
+                  aria-label="Остановить генерацию"
+                  onClick={stopGeneration}
+                >
+                  <Square className="size-3.5 fill-current" />
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  size="icon-lg"
+                  className="send-button"
+                  aria-label="Отправить сообщение"
+                  disabled={
+                    !input.trim() ||
+                    !isValidTargetOutputTokens(parsedTargetOutputTokens) ||
+                    hasInvalidCustomSystemPrompt
+                  }
+                >
+                  <ArrowUp className="size-[18px]" />
+                </Button>
+              )}
+            </form>
+            <p className="composer-hint">
+              Enter — отправить · Shift + Enter — новая строка
+            </p>
+          </footer>
+
+          <output className="sr-only" aria-live="polite" aria-atomic="true">
+            {isGenerating
+              ? 'DeepSeek отвечает'
+              : latestAssistant?.status === 'complete'
+                ? 'Ответ DeepSeek завершён'
+                : latestAssistant?.status === 'stopped'
+                  ? 'Генерация остановлена'
+                  : ''}
+          </output>
+        </div>
+      </AppSections>
     </main>
   );
 }

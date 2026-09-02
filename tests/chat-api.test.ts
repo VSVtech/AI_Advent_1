@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { POST } from '@/app/api/chat/route';
+import {
+  buildSelectorSystemPrompt,
+  MAX_CUSTOM_SYSTEM_PROMPT_LENGTH,
+} from '@/lib/chat-prompts';
 
 const originalApiKey = process.env.DEEPSEEK_API_KEY;
 
@@ -8,6 +12,10 @@ function chatRequest(
   messages: Array<{ role: string; content: string }>,
   format?: string,
   targetOutputTokens?: number,
+  systemPromptOptions: {
+    useSelectorSystemPrompt?: unknown;
+    customSystemPrompt?: unknown;
+  } = {},
 ) {
   return new Request('http://localhost/api/chat', {
     method: 'POST',
@@ -16,6 +24,7 @@ function chatRequest(
       messages,
       ...(format ? { format } : {}),
       ...(targetOutputTokens === undefined ? {} : { targetOutputTokens }),
+      ...systemPromptOptions,
     }),
   });
 }
@@ -171,6 +180,226 @@ describe('POST /api/chat', () => {
     expect(body).toContain('event: delta\ndata: {"content":"Частичный ответ"}');
     expect(body).toContain('event: error\ndata: {"code":"response_incomplete"');
     expect(body).not.toContain('test-secret');
+  });
+
+  it('заменяет автоматические инструкции кастомным текстом в потоковом запросе', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          deepSeekStream([
+            'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"Краткий ответ"}\n\n',
+            'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed","usage":{"output_tokens":3}}}\n\n',
+          ]),
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const messages = [
+      { role: 'user', content: 'Вопрос' },
+      { role: 'assistant', content: 'Ответ' },
+      { role: 'user', content: 'Продолжи' },
+    ];
+    const customSystemPrompt = 'Ты преподаватель.\nОтветь в одном предложении.';
+
+    const response = await POST(
+      chatRequest(messages, 'text', 300, {
+        useSelectorSystemPrompt: false,
+        customSystemPrompt,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"outputTokens":3');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.instructions).toBe(customSystemPrompt);
+    expect(payload.input).toEqual(messages);
+    expect(payload.max_output_tokens).toBe(800);
+    expect(payload.stream).toBe(true);
+  });
+
+  it.each([
+    ['json', 'json_object', '{"answer":42}'],
+    ['xml', 'text', '<response><answer>42</answer></response>'],
+    ['yaml', 'text', 'answer: 42'],
+  ])(
+    'сохраняет формат %s и его проверку при кастомном промпте',
+    async (format, expectedApiFormat, validContent) => {
+      process.env.DEEPSEEK_API_KEY = 'test-secret';
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(deepSeekResponse(validContent));
+      vi.stubGlobal('fetch', fetchMock);
+      const customSystemPrompt = `Отвечай в формате ${format}. Укажи ответ в поле answer.`;
+
+      const response = await POST(
+        chatRequest([{ role: 'user', content: 'Сколько?' }], format, 300, {
+          useSelectorSystemPrompt: false,
+          customSystemPrompt,
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('event: done');
+      const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(payload.instructions).toBe(customSystemPrompt);
+      expect(payload.text.format.type).toBe(expectedApiFormat);
+      expect(payload.max_output_tokens).toBe(800);
+      expect(payload.stream).toBe(false);
+    },
+  );
+
+  it('в автоматическом режиме использует тот же промпт, что и предпросмотр, и игнорирует кастомный', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn().mockResolvedValue(deepSeekResponse('answer: 42'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Сколько?' }], 'yaml', 8000, {
+        useSelectorSystemPrompt: true,
+        customSystemPrompt: 'Этот текст не должен попасть в запрос.',
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).instructions).toBe(
+      buildSelectorSystemPrompt('yaml', 8000),
+    );
+  });
+
+  it('не накапливает системные промпты при переключении режимов в диалоге', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(deepSeekResponse('answer: 42')),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const messages = [
+      { role: 'user', content: 'Вопрос' },
+      { role: 'assistant', content: 'answer: 42' },
+      { role: 'user', content: 'Другой вопрос' },
+    ];
+    const modes = [
+      {
+        useSelectorSystemPrompt: false,
+        customSystemPrompt: 'Первый YAML промпт',
+      },
+      {
+        useSelectorSystemPrompt: true,
+        customSystemPrompt: 'Первый YAML промпт',
+      },
+      {
+        useSelectorSystemPrompt: false,
+        customSystemPrompt: 'Второй YAML промпт',
+      },
+    ];
+
+    for (const mode of modes) {
+      const response = await POST(chatRequest(messages, 'yaml', 300, mode));
+      expect(response.status).toBe(200);
+    }
+
+    const payloads = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(init.body),
+    );
+    expect(payloads.map((payload) => payload.instructions)).toEqual([
+      'Первый YAML промпт',
+      buildSelectorSystemPrompt('yaml', 300),
+      'Второй YAML промпт',
+    ]);
+    for (const payload of payloads) expect(payload.input).toEqual(messages);
+  });
+
+  it.each(['false', null, 0, {}, []])(
+    'отклоняет некорректный режим промпта %j до запроса к модели',
+    async (useSelectorSystemPrompt) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await POST(
+        chatRequest([{ role: 'user', content: 'Привет' }], 'text', 500, {
+          useSelectorSystemPrompt,
+          customSystemPrompt: 'Ответь кратко.',
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'invalid_system_prompt_mode' },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { label: 'отсутствующий', value: undefined },
+    { label: 'null', value: null },
+    { label: 'число', value: 42 },
+    { label: 'объект', value: {} },
+    { label: 'пустой', value: '' },
+    { label: 'пробелы', value: ' \n\t ' },
+    {
+      label: 'слишком длинный',
+      value: 'a'.repeat(MAX_CUSTOM_SYSTEM_PROMPT_LENGTH + 1),
+    },
+  ])(
+    'отклоняет $label кастомный промпт до запроса к модели',
+    async ({ value }) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await POST(
+        chatRequest([{ role: 'user', content: 'Привет' }], 'text', 500, {
+          useSelectorSystemPrompt: false,
+          customSystemPrompt: value,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'invalid_custom_system_prompt' },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('сохраняет кастомный промпт во всех трёх перезапросах без раздувания истории', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(deepSeekResponse('<response>')),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const customSystemPrompt =
+      'Верни XML: <response><answer>текст</answer></response>.';
+    const messages = [{ role: 'user', content: 'Вопрос' }];
+
+    const response = await POST(
+      chatRequest(messages, 'xml', 300, {
+        useSelectorSystemPrompt: false,
+        customSystemPrompt,
+      }),
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'invalid_model_output' },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    for (const [index, [, init]] of fetchMock.mock.calls.entries()) {
+      const payload = JSON.parse(init.body);
+      expect(payload.instructions).toBe(
+        customSystemPrompt +
+          (index === 0
+            ? ''
+            : ' A previous attempt did not pass server-side XML validation. Regenerate the complete answer and strictly follow the required format.'),
+      );
+      expect(payload.input).toEqual(messages);
+      expect(payload.max_output_tokens).toBe(800);
+    }
   });
 
   it.each([49, 98_001, 100.5])(

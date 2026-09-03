@@ -6,6 +6,19 @@ export const MAX_OUTPUT_TOKEN_HEADROOM = 2000;
 export const MAX_TARGET_OUTPUT_TOKENS =
   MAX_MAX_OUTPUT_TOKENS - MAX_OUTPUT_TOKEN_HEADROOM;
 
+export const DEFAULT_TEMPERATURE = 1;
+export const MIN_TEMPERATURE = 0;
+export const MAX_TEMPERATURE = 2;
+
+export function isValidTemperature(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= MIN_TEMPERATURE &&
+    value <= MAX_TEMPERATURE
+  );
+}
+
 export function isValidTargetOutputTokens(value: unknown): value is number {
   return (
     typeof value === 'number' &&

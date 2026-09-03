@@ -6,7 +6,11 @@ import type {
 import {
   calculateMaxOutputTokens,
   DEFAULT_TARGET_OUTPUT_TOKENS,
+  DEFAULT_TEMPERATURE,
   isValidTargetOutputTokens,
+  isValidTemperature,
+  MAX_TEMPERATURE,
+  MIN_TEMPERATURE,
 } from '@/lib/chat-constraints';
 import {
   buildSelectorSystemPrompt,
@@ -48,13 +52,15 @@ async function generateStructuredOutput({
   messages,
   signal,
   systemPrompt,
+  temperature,
 }: {
   apiKey: string;
   format: StructuredOutputFormat;
   maxOutputTokens: number;
   messages: ApiChatMessage[];
   signal: AbortSignal;
-  systemPrompt: string;
+  systemPrompt: string | null;
+  temperature: number;
 }): Promise<Response> {
   const textFormat =
     format === 'json'
@@ -80,12 +86,23 @@ async function generateStructuredOutput({
         },
         body: JSON.stringify({
           model: DEEPSEEK_MODEL,
-          input: messages,
+          // Format repair must not re-enable a disabled system prompt.
+          // Only the current retry gets this user instruction; history is unchanged.
+          input:
+            systemPrompt === null && retryInstruction
+              ? [
+                  ...messages,
+                  { role: 'user', content: retryInstruction.trim() },
+                ]
+              : messages,
           max_output_tokens: maxOutputTokens,
+          temperature,
           stream: false,
           reasoning: { effort: 'none' },
           text: { format: textFormat },
-          instructions: `${systemPrompt}${retryInstruction}`,
+          ...(systemPrompt === null
+            ? {}
+            : { instructions: `${systemPrompt}${retryInstruction}` }),
         }),
         cache: 'no-store',
         signal,
@@ -182,9 +199,21 @@ export async function POST(request: Request): Promise<Response> {
 
   const maxOutputTokens = calculateMaxOutputTokens(targetOutputTokens);
 
+  const temperature =
+    body.temperature === undefined ? DEFAULT_TEMPERATURE : body.temperature;
+
+  if (!isValidTemperature(temperature)) {
+    return jsonError(400, {
+      code: 'invalid_temperature',
+      message: `Укажите температуру от ${MIN_TEMPERATURE} до ${MAX_TEMPERATURE}.`,
+    });
+  }
+
   if (
-    body.useSelectorSystemPrompt !== undefined &&
-    typeof body.useSelectorSystemPrompt !== 'boolean'
+    (body.useSystemPrompt !== undefined &&
+      typeof body.useSystemPrompt !== 'boolean') ||
+    (body.useSelectorSystemPrompt !== undefined &&
+      typeof body.useSelectorSystemPrompt !== 'boolean')
   ) {
     return jsonError(400, {
       code: 'invalid_system_prompt_mode',
@@ -192,9 +221,11 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  let systemPrompt: string;
+  let systemPrompt: string | null;
 
-  if (body.useSelectorSystemPrompt === false) {
+  if (body.useSystemPrompt === false) {
+    systemPrompt = null;
+  } else if (body.useSelectorSystemPrompt === false) {
     if (!isValidCustomSystemPrompt(body.customSystemPrompt)) {
       return jsonError(400, {
         code: 'invalid_custom_system_prompt',
@@ -223,6 +254,7 @@ export async function POST(request: Request): Promise<Response> {
       messages: body.messages,
       signal: request.signal,
       systemPrompt,
+      temperature,
     });
   }
 
@@ -239,10 +271,11 @@ export async function POST(request: Request): Promise<Response> {
         model: DEEPSEEK_MODEL,
         input: body.messages,
         max_output_tokens: maxOutputTokens,
+        temperature,
         stream: true,
         reasoning: { effort: 'none' },
         text: { format: { type: 'text' } },
-        instructions: systemPrompt,
+        ...(systemPrompt === null ? {} : { instructions: systemPrompt }),
       }),
       cache: 'no-store',
       signal: request.signal,

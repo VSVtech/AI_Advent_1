@@ -22,6 +22,8 @@ export interface ChatRequest {
   messages: ApiChatMessage[];
   format?: ChatOutputFormat;
   targetOutputTokens?: number;
+  temperature?: number;
+  useSystemPrompt?: boolean;
   useSelectorSystemPrompt?: boolean;
   customSystemPrompt?: string;
 }

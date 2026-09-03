@@ -497,7 +497,7 @@ body {
   }
 
   .format-row {
-    @apply mx-auto mb-2 grid max-w-3xl grid-cols-[minmax(0,1fr)_auto] items-end gap-2 px-1 sm:gap-3;
+    @apply mx-auto mb-2 flex max-w-3xl flex-wrap items-end justify-between gap-2 px-1 sm:gap-3;
   }
 
   .length-controls {

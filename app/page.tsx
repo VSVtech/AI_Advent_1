@@ -20,9 +20,10 @@ import {
 import { AppSections, type AppSection } from '@/components/app-sections';
 import { MarkdownMessage } from '@/components/markdown-message';
 import { SectionHeader } from '@/components/section-header';
+import { SystemPromptControl } from '@/components/system-prompt-control';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import {
   Message,
   MessageAvatar,
@@ -41,9 +42,13 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   calculateMaxOutputTokens,
   DEFAULT_TARGET_OUTPUT_TOKENS,
+  DEFAULT_TEMPERATURE,
   isValidTargetOutputTokens,
+  isValidTemperature,
   MAX_TARGET_OUTPUT_TOKENS,
+  MAX_TEMPERATURE,
   MIN_TARGET_OUTPUT_TOKENS,
+  MIN_TEMPERATURE,
 } from '@/lib/chat-constraints';
 import {
   buildSelectorSystemPrompt,
@@ -145,9 +150,13 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [outputFormat, setOutputFormat] = useState<ChatOutputFormat>('text');
+  const [temperature, setTemperature] = useState(String(DEFAULT_TEMPERATURE));
+  const parsedTemperature = temperature.trim() ? Number(temperature) : NaN;
+  const hasInvalidTemperature = !isValidTemperature(parsedTemperature);
   const [targetOutputTokens, setTargetOutputTokens] = useState(
     String(DEFAULT_TARGET_OUTPUT_TOKENS),
   );
+  const [useSystemPrompt, setUseSystemPrompt] = useState(true);
   const [useSelectorSystemPrompt, setUseSelectorSystemPrompt] = useState(true);
   const [customSystemPrompt, setCustomSystemPrompt] = useState<string | null>(
     null,
@@ -159,7 +168,9 @@ export default function Home() {
     ? buildSelectorSystemPrompt(outputFormat, parsedTargetOutputTokens)
     : '';
   const hasInvalidCustomSystemPrompt =
-    !useSelectorSystemPrompt && !isValidCustomSystemPrompt(customSystemPrompt);
+    useSystemPrompt &&
+    !useSelectorSystemPrompt &&
+    !isValidCustomSystemPrompt(customSystemPrompt);
   const calculatedMaxOutputTokens = isValidTargetOutputTokens(
     parsedTargetOutputTokens,
   )
@@ -219,6 +230,13 @@ export default function Home() {
       return;
     }
 
+    if (hasInvalidTemperature) {
+      setError(
+        `Укажите температуру от ${MIN_TEMPERATURE} до ${MAX_TEMPERATURE}.`,
+      );
+      return;
+    }
+
     const userMessage: ChatMessage = {
       id: createId(),
       role: 'user',
@@ -249,8 +267,10 @@ export default function Home() {
           messages: requestMessages,
           format: outputFormat,
           targetOutputTokens: parsedTargetOutputTokens,
+          temperature: parsedTemperature,
+          useSystemPrompt,
           useSelectorSystemPrompt,
-          ...(!useSelectorSystemPrompt
+          ...(useSystemPrompt && !useSelectorSystemPrompt
             ? { customSystemPrompt: customSystemPrompt ?? '' }
             : {}),
         } satisfies ChatRequest),
@@ -539,101 +559,96 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="format-control items-end">
-                <span className="format-label">Формат ответа</span>
-                <Select
-                  value={outputFormat}
-                  disabled={isGenerating}
-                  onValueChange={(value) => {
-                    if (
-                      typeof value === 'string' &&
-                      outputFormats.some((option) => option.value === value)
-                    ) {
-                      setOutputFormat(value as ChatOutputFormat);
+              <div className="ml-auto flex items-end gap-2 sm:gap-3">
+                <div className="format-control items-start">
+                  <label className="format-label" htmlFor="temperature">
+                    Температура
+                  </label>
+                  <Input
+                    id="temperature"
+                    type="number"
+                    inputMode="decimal"
+                    min={MIN_TEMPERATURE}
+                    max={MAX_TEMPERATURE}
+                    step={0.1}
+                    value={temperature}
+                    disabled={isGenerating}
+                    aria-invalid={hasInvalidTemperature || undefined}
+                    aria-describedby={
+                      hasInvalidTemperature ? 'temperature-error' : undefined
                     }
-                  }}
-                >
-                  <SelectTrigger
-                    size="sm"
-                    className="format-trigger"
-                    aria-label="Формат ответа"
+                    title="От 0 до 2. Ниже — меньше вариативность, выше — больше. По умолчанию 1."
+                    className="length-input w-[4.5rem] border-white/8 bg-white/[0.035] text-xs text-white/65 focus-visible:border-emerald-300/30 focus-visible:ring-emerald-300/15 disabled:bg-white/[0.035] aria-invalid:border-red-300/40 aria-invalid:ring-red-300/10 sm:w-24 md:text-xs dark:bg-white/[0.035] dark:disabled:bg-white/[0.035] dark:aria-invalid:border-red-300/40 dark:aria-invalid:ring-red-300/10"
+                    onChange={(event) => setTemperature(event.target.value)}
+                  />
+                </div>
+
+                <div className="format-control items-end">
+                  <span className="format-label">Формат ответа</span>
+                  <Select
+                    value={outputFormat}
+                    disabled={isGenerating}
+                    onValueChange={(value) => {
+                      if (
+                        typeof value === 'string' &&
+                        outputFormats.some((option) => option.value === value)
+                      ) {
+                        setOutputFormat(value as ChatOutputFormat);
+                      }
+                    }}
                   >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent align="start" className="format-menu">
-                    {outputFormats.map((option) => (
-                      <SelectItem
-                        key={option.value}
-                        value={option.value}
-                        className="format-option"
-                      >
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                    <SelectTrigger
+                      size="sm"
+                      className="format-trigger"
+                      aria-label="Формат ответа"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="start" className="format-menu">
+                      {outputFormats.map((option) => (
+                        <SelectItem
+                          key={option.value}
+                          value={option.value}
+                          className="format-option"
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 
-            <div className="system-prompt-control">
-              <div className="system-prompt-header">
-                <label className="format-label" htmlFor="system-prompt">
-                  Системный промпт
-                </label>
-                <label
-                  className="system-prompt-toggle"
-                  htmlFor="use-selector-system-prompt"
-                >
-                  <Checkbox
-                    id="use-selector-system-prompt"
-                    checked={useSelectorSystemPrompt}
-                    disabled={isGenerating}
-                    onCheckedChange={(checked) => {
-                      if (!checked && customSystemPrompt === null) {
-                        setCustomSystemPrompt(generatedSystemPrompt);
-                      }
-                      setUseSelectorSystemPrompt(checked);
-                    }}
-                  />
-                  Использовать промпт из селекторов
-                </label>
-              </div>
-              <Textarea
-                id="system-prompt"
-                rows={3}
-                value={
-                  useSelectorSystemPrompt
-                    ? generatedSystemPrompt
-                    : (customSystemPrompt ?? '')
-                }
-                readOnly={useSelectorSystemPrompt || isGenerating}
-                maxLength={MAX_CUSTOM_SYSTEM_PROMPT_LENGTH}
-                onChange={(event) => setCustomSystemPrompt(event.target.value)}
-                aria-describedby={
-                  hasInvalidCustomSystemPrompt
-                    ? 'system-prompt-hint system-prompt-error'
-                    : 'system-prompt-hint'
-                }
-                aria-invalid={hasInvalidCustomSystemPrompt || undefined}
-                placeholder={
-                  useSelectorSystemPrompt
-                    ? 'Укажите корректную целевую длину для предпросмотра.'
-                    : 'Задайте роль, стиль, формат и длину ответа…'
-                }
-                className="system-prompt-input"
-              />
-              <p id="system-prompt-hint" className="system-prompt-hint">
-                {useSelectorSystemPrompt
-                  ? 'Промпт обновляется при изменении формата и целевой длины. Снимите галочку, чтобы редактировать.'
-                  : 'Ваш текст заменяет инструкции из селекторов. Проверка формата и макс. токенов действуют — опишите нужный формат и длину в промпте.'}
+            {hasInvalidTemperature ? (
+              <p
+                id="temperature-error"
+                role="alert"
+                className="mx-auto mb-2 max-w-3xl px-1 text-xs text-red-200"
+              >
+                Укажите температуру от {MIN_TEMPERATURE} до {MAX_TEMPERATURE}.
               </p>
-              {hasInvalidCustomSystemPrompt ? (
-                <p id="system-prompt-error" className="system-prompt-error">
-                  Введите системный промпт от 1 до{' '}
-                  {MAX_CUSTOM_SYSTEM_PROMPT_LENGTH} символов.
-                </p>
-              ) : null}
-            </div>
+            ) : null}
+
+            <SystemPromptControl
+              useSystemPrompt={useSystemPrompt}
+              useSelectorSystemPrompt={useSelectorSystemPrompt}
+              value={
+                useSelectorSystemPrompt
+                  ? generatedSystemPrompt
+                  : (customSystemPrompt ?? '')
+              }
+              hasInvalidCustomSystemPrompt={hasInvalidCustomSystemPrompt}
+              isGenerating={isGenerating}
+              onUseSystemPromptChange={setUseSystemPrompt}
+              onUseSelectorSystemPromptChange={(checked) => {
+                if (!checked && customSystemPrompt === null) {
+                  setCustomSystemPrompt(generatedSystemPrompt);
+                }
+                setUseSelectorSystemPrompt(checked);
+              }}
+              onValueChange={setCustomSystemPrompt}
+            />
 
             <form className="composer" onSubmit={handleSubmit}>
               <Textarea
@@ -665,6 +680,7 @@ export default function Home() {
                   disabled={
                     !input.trim() ||
                     !isValidTargetOutputTokens(parsedTargetOutputTokens) ||
+                    hasInvalidTemperature ||
                     hasInvalidCustomSystemPrompt
                   }
                 >

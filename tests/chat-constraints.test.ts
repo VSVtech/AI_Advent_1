@@ -4,6 +4,7 @@ import {
   calculateMaxOutputTokens,
   calculateTargetOutputRange,
   isValidTargetOutputTokens,
+  isValidTemperature,
 } from '@/lib/chat-constraints';
 
 describe('ограничения длины ответа', () => {
@@ -41,4 +42,27 @@ describe('ограничения длины ответа', () => {
       expect(calculateTargetOutputRange(target)).toEqual(expectedRange);
     },
   );
+});
+
+describe('температура', () => {
+  it.each([0, 0.1, 0.25, 1, 1.9, 2])('принимает %s', (value) => {
+    expect(isValidTemperature(value)).toBe(true);
+  });
+
+  it.each([
+    -0.1,
+    2.1,
+    NaN,
+    Infinity,
+    -Infinity,
+    '1',
+    '',
+    null,
+    undefined,
+    true,
+    {},
+    [],
+  ])('отклоняет %j', (value) => {
+    expect(isValidTemperature(value)).toBe(false);
+  });
 });

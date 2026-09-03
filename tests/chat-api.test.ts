@@ -12,9 +12,11 @@ function chatRequest(
   messages: Array<{ role: string; content: string }>,
   format?: string,
   targetOutputTokens?: number,
-  systemPromptOptions: {
+  options: {
+    useSystemPrompt?: unknown;
     useSelectorSystemPrompt?: unknown;
     customSystemPrompt?: unknown;
+    temperature?: unknown;
   } = {},
 ) {
   return new Request('http://localhost/api/chat', {
@@ -24,7 +26,7 @@ function chatRequest(
       messages,
       ...(format ? { format } : {}),
       ...(targetOutputTokens === undefined ? {} : { targetOutputTokens }),
-      ...systemPromptOptions,
+      ...options,
     }),
   });
 }
@@ -147,12 +149,193 @@ describe('POST /api/chat', () => {
       model: 'deepseek-v4-flash',
       input: messages,
       max_output_tokens: 9600,
+      temperature: 1,
       stream: true,
       reasoning: { effort: 'none' },
       text: { format: { type: 'text' } },
       instructions:
         'The complete answer must contain between 7000 and 9000 output tokens. For prose, use approximately 4800 words as an additional planning guide. Treat the token range as a required target, not merely an upper bound or a suggestion. The separate API token limit is only an emergency buffer for completing the answer and closing structured data; do not use that allowance as the target length. Plan the response length before writing and finish inside the target range. Develop relevant details, examples, edge cases, and explanations without repetition or filler. Do not cut off a sentence, list, code block, JSON object, XML document, or YAML document to meet the target.',
     });
+  });
+
+  it.each([
+    { useSelectorSystemPrompt: true, customSystemPrompt: 'Не отправлять' },
+    { useSelectorSystemPrompt: false, customSystemPrompt: 'Не отправлять' },
+    { useSelectorSystemPrompt: false, customSystemPrompt: '' },
+    { useSelectorSystemPrompt: false, customSystemPrompt: null },
+    { useSelectorSystemPrompt: false },
+    {},
+  ])(
+    'отправляет текст без системного промпта при настройках %j',
+    async (options) => {
+      process.env.DEEPSEEK_API_KEY = 'test-secret';
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            deepSeekStream([
+              'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"Ответ"}\n\n',
+              'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+            ]),
+          ),
+        );
+      vi.stubGlobal('fetch', fetchMock);
+      const messages = [
+        { role: 'user', content: 'Вопрос' },
+        { role: 'assistant', content: 'Ответ' },
+        { role: 'user', content: 'Продолжи' },
+      ];
+
+      const response = await POST(
+        chatRequest(messages, 'text', 300, {
+          ...options,
+          useSystemPrompt: false,
+          temperature: 0.2,
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('event: done');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(payload).not.toHaveProperty('instructions');
+      expect(payload.input).toEqual(messages);
+      expect(payload.max_output_tokens).toBe(800);
+      expect(payload.temperature).toBe(0.2);
+      expect(payload.text.format.type).toBe('text');
+    },
+  );
+
+  it.each(['false', null, 0, {}, []])(
+    'отклоняет некорректный флаг системного промпта %j',
+    async (useSystemPrompt) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await POST(
+        chatRequest([{ role: 'user', content: 'Вопрос' }], 'text', 500, {
+          useSystemPrompt,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'invalid_system_prompt_mode' },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['json', 'json_object', '{"answer":42}'],
+    ['xml', 'text', '<response><answer>42</answer></response>'],
+    ['yaml', 'text', 'answer: 42'],
+  ])(
+    'проверяет %s и уточняет формат через user без системного промпта',
+    async (format, apiFormat, content) => {
+      process.env.DEEPSEEK_API_KEY = 'test-secret';
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(deepSeekResponse('неправильный формат'))
+        .mockResolvedValueOnce(deepSeekResponse(content));
+      vi.stubGlobal('fetch', fetchMock);
+      const messages = [{ role: 'user', content: `Ответь в ${format}` }];
+
+      const response = await POST(
+        chatRequest(messages, format, 300, {
+          useSystemPrompt: false,
+          temperature: 0,
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const body = await response.text();
+      expect(body).toContain('event: done');
+      expect(body).not.toContain('неправильный формат');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const payloads = fetchMock.mock.calls.map(([, init]) =>
+        JSON.parse(init.body),
+      );
+      expect(payloads[0].input).toEqual(messages);
+      expect(payloads[1].input).toEqual([
+        ...messages,
+        {
+          role: 'user',
+          content: `A previous attempt did not pass server-side ${format.toUpperCase()} validation. Regenerate the complete answer and strictly follow the required format.`,
+        },
+      ]);
+      for (const payload of payloads) {
+        expect(payload).not.toHaveProperty('instructions');
+        expect(payload.text.format.type).toBe(apiFormat);
+        expect(payload.max_output_tokens).toBe(800);
+        expect(payload.temperature).toBe(0);
+      }
+    },
+  );
+
+  it('не включает системный промпт и не накапливает уточнения за три повтора', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(deepSeekResponse('<response>')),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const messages = [{ role: 'user', content: 'Ответь в XML' }];
+
+    const response = await POST(
+      chatRequest(messages, 'xml', 300, {
+        useSystemPrompt: false,
+      }),
+    );
+
+    expect(response.status).toBe(502);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const payloads = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(init.body),
+    );
+    for (const [index, payload] of payloads.entries()) {
+      expect(payload).not.toHaveProperty('instructions');
+      expect(payload.input).toHaveLength(index === 0 ? 1 : 2);
+      expect(payload.input[0]).toEqual(messages[0]);
+      expect(
+        payload.input.every((item: { role: string }) => item.role === 'user'),
+      ).toBe(true);
+    }
+    expect(payloads[1].input).toEqual(payloads[2].input);
+    expect(payloads[2].input).toEqual(payloads[3].input);
+    expect(messages).toHaveLength(1);
+  });
+
+  it('включает и выключает системный промпт между запросами без изменения истории', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(deepSeekResponse('answer: 42')),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const messages = [{ role: 'user', content: 'Ответь в YAML' }];
+    const customSystemPrompt = 'Верни ответ в YAML.';
+
+    for (const useSystemPrompt of [true, false, true]) {
+      const response = await POST(
+        chatRequest(messages, 'yaml', 300, {
+          useSystemPrompt,
+          useSelectorSystemPrompt: false,
+          customSystemPrompt,
+        }),
+      );
+      expect(response.status).toBe(200);
+    }
+
+    const payloads = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(init.body),
+    );
+    expect(payloads[0].instructions).toBe(customSystemPrompt);
+    expect(payloads[1]).not.toHaveProperty('instructions');
+    expect(payloads[2].instructions).toBe(customSystemPrompt);
+    for (const payload of payloads) expect(payload.input).toEqual(messages);
   });
 
   it('преобразует незавершённый ответ Responses API в безопасную ошибку', async () => {
@@ -206,6 +389,7 @@ describe('POST /api/chat', () => {
       chatRequest(messages, 'text', 300, {
         useSelectorSystemPrompt: false,
         customSystemPrompt,
+        temperature: 0.3,
       }),
     );
 
@@ -216,6 +400,7 @@ describe('POST /api/chat', () => {
     expect(payload.instructions).toBe(customSystemPrompt);
     expect(payload.input).toEqual(messages);
     expect(payload.max_output_tokens).toBe(800);
+    expect(payload.temperature).toBe(0.3);
     expect(payload.stream).toBe(true);
   });
 
@@ -237,6 +422,7 @@ describe('POST /api/chat', () => {
         chatRequest([{ role: 'user', content: 'Сколько?' }], format, 300, {
           useSelectorSystemPrompt: false,
           customSystemPrompt,
+          temperature: 1.5,
         }),
       );
 
@@ -246,6 +432,7 @@ describe('POST /api/chat', () => {
       expect(payload.instructions).toBe(customSystemPrompt);
       expect(payload.text.format.type).toBe(expectedApiFormat);
       expect(payload.max_output_tokens).toBe(800);
+      expect(payload.temperature).toBe(1.5);
       expect(payload.stream).toBe(false);
     },
   );
@@ -381,6 +568,7 @@ describe('POST /api/chat', () => {
       chatRequest(messages, 'xml', 300, {
         useSelectorSystemPrompt: false,
         customSystemPrompt,
+        temperature: 0,
       }),
     );
 
@@ -399,8 +587,63 @@ describe('POST /api/chat', () => {
       );
       expect(payload.input).toEqual(messages);
       expect(payload.max_output_tokens).toBe(800);
+      expect(payload.temperature).toBe(0);
     }
   });
+
+  it.each([0, 0.25, 1, 2])(
+    'передаёт температуру %s в потоковый запрос без изменения промпта',
+    async (temperature) => {
+      process.env.DEEPSEEK_API_KEY = 'test-secret';
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            deepSeekStream([
+              'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"Ответ"}\n\n',
+              'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+            ]),
+          ),
+        );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await POST(
+        chatRequest([{ role: 'user', content: 'Вопрос' }], 'text', 500, {
+          temperature,
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toContain('event: done');
+      const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(payload.temperature).toBe(temperature);
+      expect(payload.reasoning).toEqual({ effort: 'none' });
+      expect(payload.instructions).toBe(buildSelectorSystemPrompt('text', 500));
+    },
+  );
+
+  it.each([-0.1, 2.1, '1', '', null, true, {}, []])(
+    'отклоняет температуру %j до обращения к DeepSeek',
+    async (temperature) => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await POST(
+        chatRequest([{ role: 'user', content: 'Вопрос' }], 'text', 500, {
+          temperature,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: 'invalid_temperature',
+          message: 'Укажите температуру от 0 до 2.',
+        },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([49, 98_001, 100.5])(
     'отклоняет некорректную целевую длину %s',
@@ -465,6 +708,7 @@ describe('POST /api/chat', () => {
       );
       expect(JSON.parse(init.body).stream).toBe(false);
       expect(JSON.parse(init.body).max_output_tokens).toBe(1000);
+      expect(JSON.parse(init.body).temperature).toBe(1);
       expect(responseBody).toContain('"outputTokens":12');
       expect(responseBody).toContain('event: done');
     },
@@ -479,7 +723,9 @@ describe('POST /api/chat', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await POST(
-      chatRequest([{ role: 'user', content: 'Ответь числом' }], 'json'),
+      chatRequest([{ role: 'user', content: 'Ответь числом' }], 'json', 500, {
+        temperature: 0.4,
+      }),
     );
     const body = await response.text();
 
@@ -498,6 +744,9 @@ describe('POST /api/chat', () => {
     expect(JSON.parse(retryInit.body).instructions).toContain(
       'between 437 and 563 output tokens',
     );
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(JSON.parse(init.body).temperature).toBe(0.4);
+    }
   });
 
   it('повторяет YAML без лишнего корневого ключа формата', async () => {

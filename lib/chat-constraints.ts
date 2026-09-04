@@ -19,6 +19,30 @@ export function isValidTemperature(value: unknown): value is number {
   );
 }
 
+export const DEFAULT_MODEL = 'deepseek-v4-flash';
+export const MAX_MODEL_ID_LENGTH = 200;
+
+export function isValidModel(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.trim().length > 0 &&
+    value.trim().length <= MAX_MODEL_ID_LENGTH
+  );
+}
+
+// Turns a raw DeepSeek model id ("deepseek-v4-flash") into a short,
+// human-friendly label ("V4 Flash") for compact UI like the header badge.
+export function formatModelLabel(id: string): string {
+  const withoutPrefix = id.replace(/^deepseek-/i, '');
+  const parts = withoutPrefix.split('-').filter(Boolean);
+
+  if (parts.length === 0) return id;
+
+  return parts
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 export function isValidTargetOutputTokens(value: unknown): value is number {
   return (
     typeof value === 'number' &&

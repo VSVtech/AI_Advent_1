@@ -7,6 +7,7 @@ import {
   calculateMaxOutputTokens,
   DEFAULT_TARGET_OUTPUT_TOKENS,
   DEFAULT_TEMPERATURE,
+  isValidModel,
   isValidTargetOutputTokens,
   isValidTemperature,
   MAX_TEMPERATURE,
@@ -50,6 +51,7 @@ async function generateStructuredOutput({
   format,
   maxOutputTokens,
   messages,
+  model,
   signal,
   systemPrompt,
   temperature,
@@ -58,6 +60,7 @@ async function generateStructuredOutput({
   format: StructuredOutputFormat;
   maxOutputTokens: number;
   messages: ApiChatMessage[];
+  model: string;
   signal: AbortSignal;
   systemPrompt: string | null;
   temperature: number;
@@ -85,7 +88,7 @@ async function generateStructuredOutput({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: DEEPSEEK_MODEL,
+          model,
           // Format repair must not re-enable a disabled system prompt.
           // Only the current retry gets this user instruction; history is unchanged.
           input:
@@ -209,6 +212,15 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
+  const model = body.model === undefined ? DEEPSEEK_MODEL : body.model;
+
+  if (!isValidModel(model)) {
+    return jsonError(400, {
+      code: 'invalid_model',
+      message: 'Некорректный идентификатор модели.',
+    });
+  }
+
   if (
     (body.useSystemPrompt !== undefined &&
       typeof body.useSystemPrompt !== 'boolean') ||
@@ -252,6 +264,7 @@ export async function POST(request: Request): Promise<Response> {
       format: outputFormat,
       maxOutputTokens,
       messages: body.messages,
+      model,
       signal: request.signal,
       systemPrompt,
       temperature,
@@ -268,7 +281,7 @@ export async function POST(request: Request): Promise<Response> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
+        model,
         input: body.messages,
         max_output_tokens: maxOutputTokens,
         temperature,

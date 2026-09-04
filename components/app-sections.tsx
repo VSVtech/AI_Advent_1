@@ -1,17 +1,19 @@
 'use client';
 
-import { Columns2, MessageSquare, Sparkles } from 'lucide-react';
+import { Columns2, Gauge, MessageSquare, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { Comparison } from '@/components/comparison';
+import { ModelBenchmark } from '@/components/model-benchmark';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/hooks/use-mobile';
 
-export type AppSection = 'chat' | 'comparison';
+export type AppSection = 'chat' | 'comparison' | 'benchmark';
 
 const sections = [
   { value: 'chat', label: 'Чат', icon: MessageSquare },
   { value: 'comparison', label: 'Сравнение', icon: Columns2 },
+  { value: 'benchmark', label: 'Бенчмарк', icon: Gauge },
 ] as const;
 
 export function AppSections({
@@ -29,10 +31,12 @@ export function AppSections({
     <Tabs
       value={activeSection}
       onValueChange={(value) => {
-        if (value === 'chat' || value === 'comparison') onSectionChange(value);
+        if (value === 'chat' || value === 'comparison' || value === 'benchmark') {
+          onSectionChange(value);
+        }
       }}
       orientation={isMobile ? 'horizontal' : 'vertical'}
-      className={`app-frame flex-col gap-0 md:flex-row${activeSection === 'comparison' ? ' sm:max-w-none' : ''}`}
+      className={`app-frame flex-col gap-0 md:flex-row${activeSection === 'chat' ? '' : ' sm:max-w-none'}`}
     >
       <aside className="app-sidebar" aria-label="Меню разделов">
         <div className="hidden h-[68px] items-center gap-2.5 px-4 md:flex">
@@ -65,6 +69,9 @@ export function AppSections({
       </TabsContent>
       <TabsContent value="comparison" keepMounted className="section-panel">
         <Comparison />
+      </TabsContent>
+      <TabsContent value="benchmark" keepMounted className="section-panel">
+        <ModelBenchmark />
       </TabsContent>
     </Tabs>
   );

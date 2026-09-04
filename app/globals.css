@@ -260,6 +260,28 @@ body {
     @apply text-xs leading-5 text-red-200;
   }
 
+  .benchmark-table-wrap {
+    @apply min-h-0 overflow-auto px-4 pb-4;
+    scrollbar-color: rgb(255 255 255 / 15%) transparent;
+    scrollbar-width: thin;
+  }
+
+  .benchmark-table {
+    @apply w-full min-w-[720px] border-separate border-spacing-0 text-xs text-white/70;
+  }
+
+  .benchmark-table th {
+    @apply sticky top-0 border-b border-white/10 bg-[#111a1b] px-3 py-2 text-left text-[11px] font-medium tracking-wide whitespace-nowrap text-white/40;
+  }
+
+  .benchmark-table td {
+    @apply border-b border-white/7 px-3 py-2 align-top;
+  }
+
+  .benchmark-row-fastest td {
+    @apply bg-emerald-300/[0.06] text-emerald-100;
+  }
+
   .chat-header {
     @apply flex items-center justify-between border-b border-white/7 px-4 sm:px-6;
   }
@@ -514,6 +536,14 @@ body {
 
   .format-trigger {
     @apply w-20 border-white/8 bg-white/[0.035] text-xs text-white/65 hover:bg-white/[0.055] focus-visible:border-emerald-300/30 focus-visible:ring-emerald-300/15 dark:bg-white/[0.035] dark:hover:bg-white/[0.055] sm:w-24;
+  }
+
+  /* Trailing `!` forces these over the select trigger's own utility
+     classes (rounded-lg, padding, height) so the model picker in the
+     header keeps the badge's pill shape instead of the default select
+     look. */
+  .model-badge-trigger {
+    @apply h-7! max-w-[10rem] gap-1.5! rounded-4xl! border-white/8 bg-white/[0.035] px-2.5! py-0! font-normal text-white/55 hover:bg-white/[0.055] focus-visible:border-emerald-300/30 focus-visible:ring-emerald-300/15 dark:bg-white/[0.035] dark:hover:bg-white/[0.055];
   }
 
   .length-input {

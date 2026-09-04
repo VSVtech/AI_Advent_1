@@ -39,8 +39,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { useAvailableModels } from '@/hooks/use-available-models';
 import {
   calculateMaxOutputTokens,
+  DEFAULT_MODEL,
   DEFAULT_TARGET_OUTPUT_TOKENS,
   DEFAULT_TEMPERATURE,
   isValidTargetOutputTokens,
@@ -156,6 +158,7 @@ export default function Home() {
   const [targetOutputTokens, setTargetOutputTokens] = useState(
     String(DEFAULT_TARGET_OUTPUT_TOKENS),
   );
+  const [model, setModel] = useState(DEFAULT_MODEL);
   const [useSystemPrompt, setUseSystemPrompt] = useState(true);
   const [useSelectorSystemPrompt, setUseSelectorSystemPrompt] = useState(true);
   const [customSystemPrompt, setCustomSystemPrompt] = useState<string | null>(
@@ -193,6 +196,11 @@ export default function Home() {
   useEffect(() => {
     return () => abortControllerRef.current?.abort();
   }, []);
+
+  const { models: availableModels, error: modelsError } = useAvailableModels();
+  const selectedModel = availableModels.includes(model)
+    ? model
+    : (availableModels[0] ?? DEFAULT_MODEL);
 
   const updateAssistant = (
     id: string,
@@ -268,6 +276,7 @@ export default function Home() {
           format: outputFormat,
           targetOutputTokens: parsedTargetOutputTokens,
           temperature: parsedTemperature,
+          model: selectedModel,
           useSystemPrompt,
           useSelectorSystemPrompt,
           ...(useSystemPrompt && !useSelectorSystemPrompt
@@ -384,6 +393,11 @@ export default function Home() {
             clearLabel="Очистить диалог"
             canClear={messages.length > 0}
             onClear={clearChat}
+            model={selectedModel}
+            availableModels={availableModels}
+            onModelChange={setModel}
+            modelDisabled={isGenerating}
+            modelsError={modelsError}
           />
 
           <section className="chat-content" aria-label="История диалога">

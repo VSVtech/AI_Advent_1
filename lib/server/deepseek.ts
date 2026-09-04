@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL } from '@/lib/chat-constraints';
 import type {
   ApiChatMessage,
   ChatErrorPayload,
@@ -5,7 +6,11 @@ import type {
 } from '@/lib/chat-types';
 
 export const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/responses';
-export const DEEPSEEK_MODEL = 'deepseek-v4-flash';
+export const DEEPSEEK_MODELS_ENDPOINT = 'https://api.deepseek.com/models';
+// Kept as an alias so existing imports keep working; the canonical value
+// lives in chat-constraints.ts so client code can use it without importing
+// this server-only module.
+export const DEEPSEEK_MODEL = DEFAULT_MODEL;
 
 const ERROR_BY_STATUS: Record<number, ChatErrorPayload['error']> = {
   400: {
@@ -266,6 +271,10 @@ export type DeepSeekResponsePayload = {
   status?: unknown;
   usage?: {
     output_tokens?: unknown;
+    input_tokens?: unknown;
+    input_tokens_details?: {
+      cached_tokens?: unknown;
+    } | null;
   } | null;
   incomplete_details?: {
     reason?: unknown;
@@ -279,16 +288,28 @@ export type DeepSeekResponsePayload = {
   }>;
 };
 
+function asNonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
 export function extractOutputTokens(
   payload: DeepSeekResponsePayload,
 ): number | null {
-  const outputTokens = payload.usage?.output_tokens;
+  return asNonNegativeInteger(payload.usage?.output_tokens);
+}
 
-  return typeof outputTokens === 'number' &&
-    Number.isInteger(outputTokens) &&
-    outputTokens >= 0
-    ? outputTokens
-    : null;
+export function extractInputTokenUsage(payload: DeepSeekResponsePayload): {
+  inputTokens: number | null;
+  cachedInputTokens: number | null;
+} {
+  return {
+    inputTokens: asNonNegativeInteger(payload.usage?.input_tokens),
+    cachedInputTokens: asNonNegativeInteger(
+      payload.usage?.input_tokens_details?.cached_tokens,
+    ),
+  };
 }
 
 export function extractOutputText(

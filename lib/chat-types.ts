@@ -23,9 +23,15 @@ export interface ChatRequest {
   format?: ChatOutputFormat;
   targetOutputTokens?: number;
   temperature?: number;
+  model?: string;
   useSystemPrompt?: boolean;
   useSelectorSystemPrompt?: boolean;
   customSystemPrompt?: string;
+}
+
+export interface ModelsResponsePayload {
+  models: string[];
+  default: string;
 }
 
 export type ChatStreamEvent =

@@ -17,6 +17,7 @@ function chatRequest(
     useSelectorSystemPrompt?: unknown;
     customSystemPrompt?: unknown;
     temperature?: unknown;
+    model?: unknown;
   } = {},
 ) {
   return new Request('http://localhost/api/chat', {
@@ -639,6 +640,76 @@ describe('POST /api/chat', () => {
         error: {
           code: 'invalid_temperature',
           message: 'Укажите температуру от 0 до 2.',
+        },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('передаёт выбранную модель в потоковый запрос', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          deepSeekStream([
+            'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"Ответ"}\n\n',
+            'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+          ]),
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Вопрос' }], 'text', 500, {
+        model: 'deepseek-v4-pro',
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.model).toBe('deepseek-v4-pro');
+  });
+
+  it('передаёт выбранную модель в повторные запросы структурированного вывода', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(deepSeekResponse('неправильный формат'))
+      .mockResolvedValueOnce(deepSeekResponse('{"answer":42}'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Ответь в json' }], 'json', 300, {
+        model: 'deepseek-v4-pro',
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(JSON.parse(init.body).model).toBe('deepseek-v4-pro');
+    }
+  });
+
+  it.each(['', '   ', 'x'.repeat(201), 123, null, true, {}, []])(
+    'отклоняет некорректную модель %j до обращения к DeepSeek',
+    async (model) => {
+      process.env.DEEPSEEK_API_KEY = 'test-secret';
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await POST(
+        chatRequest([{ role: 'user', content: 'Вопрос' }], 'text', 500, {
+          model,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: 'invalid_model',
+          message: 'Некорректный идентификатор модели.',
         },
       });
       expect(fetchMock).not.toHaveBeenCalled();

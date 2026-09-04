@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateMaxOutputTokens,
   calculateTargetOutputRange,
+  isValidModel,
   isValidTargetOutputTokens,
   isValidTemperature,
+  MAX_MODEL_ID_LENGTH,
 } from '@/lib/chat-constraints';
 
 describe('ограничения длины ответа', () => {
@@ -64,5 +66,28 @@ describe('температура', () => {
     [],
   ])('отклоняет %j', (value) => {
     expect(isValidTemperature(value)).toBe(false);
+  });
+});
+
+describe('модель', () => {
+  it.each(['deepseek-v4-flash', 'deepseek-v4-pro', 'a', 'x'.repeat(MAX_MODEL_ID_LENGTH)])(
+    'принимает %s',
+    (value) => {
+      expect(isValidModel(value)).toBe(true);
+    },
+  );
+
+  it.each([
+    '',
+    '   ',
+    'x'.repeat(MAX_MODEL_ID_LENGTH + 1),
+    123,
+    null,
+    undefined,
+    true,
+    {},
+    [],
+  ])('отклоняет %j', (value) => {
+    expect(isValidModel(value)).toBe(false);
   });
 });

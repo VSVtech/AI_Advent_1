@@ -165,123 +165,6 @@ body {
     @apply grid h-full w-full grid-rows-[68px_minmax(0,1fr)_auto] overflow-hidden;
   }
 
-  .comparison-frame {
-    @apply grid h-full w-full grid-rows-[68px_auto_minmax(0,1fr)] overflow-hidden;
-  }
-
-  .comparison-composer {
-    @apply space-y-2 px-4 py-3;
-  }
-
-  .comparison-composer-row {
-    @apply flex items-end gap-3;
-  }
-
-  .comparison-user-input {
-    @apply max-h-32 min-h-16 resize-none;
-  }
-
-  .comparison-hint {
-    @apply text-[11px] leading-4 text-white/40;
-  }
-
-  .comparison-columns {
-    @apply min-h-0 overflow-auto px-4 pb-4;
-    scrollbar-color: rgb(255 255 255 / 15%) transparent;
-    scrollbar-width: thin;
-  }
-
-  .comparison-grid {
-    @apply grid h-full min-h-[420px] gap-3;
-    grid-template-columns: repeat(5, minmax(260px, 1fr));
-  }
-
-  .comparison-column {
-    @apply flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-white/8 bg-white/[0.02];
-  }
-
-  .comparison-column-header {
-    @apply flex shrink-0 flex-col gap-2 border-b border-white/7 p-3;
-  }
-
-  .comparison-column-title {
-    @apply flex min-h-9 items-start gap-2 text-xs font-medium leading-5 text-white/80;
-  }
-
-  .comparison-column-title > span {
-    @apply flex size-5 shrink-0 items-center justify-center rounded-md bg-emerald-300/10 font-mono text-[11px] text-emerald-200;
-  }
-
-  .comparison-system-input {
-    @apply h-24 overflow-y-auto font-mono leading-4 text-white/65;
-    field-sizing: fixed;
-  }
-
-  .comparison-description {
-    @apply min-h-12 text-[11px] leading-4 text-white/40;
-  }
-
-  .comparison-status {
-    @apply text-[11px] text-emerald-200/65;
-  }
-
-  .comparison-messages {
-    @apply min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-3;
-    scrollbar-color: rgb(255 255 255 / 12%) transparent;
-    scrollbar-width: thin;
-  }
-
-  .comparison-turn {
-    @apply min-w-0 space-y-2;
-  }
-
-  .comparison-user-message {
-    @apply whitespace-pre-wrap break-words rounded-lg bg-white/[0.045] p-2 text-xs leading-5 text-white/70;
-  }
-
-  .comparison-answer.markdown-body {
-    @apply break-words text-[13px] leading-6;
-  }
-
-  .comparison-placeholder,
-  .comparison-usage {
-    @apply text-[11px] leading-5 text-white/40;
-  }
-
-  .comparison-prompt-details {
-    @apply rounded-lg border border-emerald-300/10 p-2 text-[11px] leading-5 text-white/55;
-  }
-
-  .comparison-prompt-trigger {
-    @apply flex w-full cursor-pointer items-center justify-between gap-2 text-left text-emerald-200/65 outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40;
-  }
-
-  .comparison-error {
-    @apply text-xs leading-5 text-red-200;
-  }
-
-  .benchmark-table-wrap {
-    @apply min-h-0 overflow-auto px-4 pb-4;
-    scrollbar-color: rgb(255 255 255 / 15%) transparent;
-    scrollbar-width: thin;
-  }
-
-  .benchmark-table {
-    @apply w-full min-w-[720px] border-separate border-spacing-0 text-xs text-white/70;
-  }
-
-  .benchmark-table th {
-    @apply sticky top-0 border-b border-white/10 bg-[#111a1b] px-3 py-2 text-left text-[11px] font-medium tracking-wide whitespace-nowrap text-white/40;
-  }
-
-  .benchmark-table td {
-    @apply border-b border-white/7 px-3 py-2 align-top;
-  }
-
-  .benchmark-row-fastest td {
-    @apply bg-emerald-300/[0.06] text-emerald-100;
-  }
-
   .chat-header {
     @apply flex items-center justify-between border-b border-white/7 px-4 sm:px-6;
   }
@@ -518,44 +401,8 @@ body {
     background: linear-gradient(to top, #10191a 72%, rgb(16 25 26 / 0%));
   }
 
-  .format-row {
-    @apply mx-auto mb-2 flex max-w-3xl flex-wrap items-end justify-between gap-2 px-1 sm:gap-3;
-  }
-
-  .length-controls {
-    @apply flex min-w-0 items-end gap-2 sm:gap-3;
-  }
-
-  .format-control {
-    @apply flex flex-col gap-1;
-  }
-
   .format-label {
     @apply text-[11px] font-medium tracking-wide text-white/30;
-  }
-
-  .format-trigger {
-    @apply w-20 border-white/8 bg-white/[0.035] text-xs text-white/65 hover:bg-white/[0.055] focus-visible:border-emerald-300/30 focus-visible:ring-emerald-300/15 dark:bg-white/[0.035] dark:hover:bg-white/[0.055] sm:w-24;
-  }
-
-  /* Trailing `!` forces these over the select trigger's own utility
-     classes (rounded-lg, padding, height) so the model picker in the
-     header keeps the badge's pill shape instead of the default select
-     look. */
-  .model-badge-trigger {
-    @apply h-7! max-w-[10rem] gap-1.5! rounded-4xl! border-white/8 bg-white/[0.035] px-2.5! py-0! font-normal text-white/55 hover:bg-white/[0.055] focus-visible:border-emerald-300/30 focus-visible:ring-emerald-300/15 dark:bg-white/[0.035] dark:hover:bg-white/[0.055];
-  }
-
-  .length-input {
-    @apply h-8 w-[4.5rem] rounded-lg border border-white/8 bg-white/[0.035] px-2.5 py-1 font-mono text-xs text-white/65 outline-none transition-colors focus-visible:border-emerald-300/30 focus-visible:ring-3 focus-visible:ring-emerald-300/15 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-red-300/40 aria-invalid:ring-3 aria-invalid:ring-red-300/10 sm:w-24;
-  }
-
-  .token-count-control {
-    @apply min-w-0;
-  }
-
-  .token-count {
-    @apply flex h-8 min-w-4 items-center font-mono text-xs tabular-nums text-white/55;
   }
 
   .format-menu {
@@ -617,6 +464,85 @@ body {
 
   .composer-hint {
     @apply mx-auto mt-2 max-w-3xl text-center text-[10px] tracking-wide text-white/25;
+  }
+
+  /* Agent sidebar: the tab bar is gone, replaced by a list of running
+     agents plus a "new agent" button. Wider than the old icon-only rail
+     since it now carries agent names. */
+  .agent-sidebar {
+    @apply flex flex-col md:w-64;
+  }
+
+  .agent-sidebar-body {
+    @apply flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3;
+    scrollbar-color: rgb(255 255 255 / 12%) transparent;
+    scrollbar-width: thin;
+  }
+
+  .agent-create-button {
+    @apply h-9 w-full justify-center gap-1.5 rounded-xl bg-emerald-300/10 text-xs font-medium text-emerald-200 ring-1 ring-inset ring-emerald-300/15 hover:bg-emerald-300/15;
+  }
+
+  .agent-sidebar-empty {
+    @apply px-1 py-2 text-center text-[11px] leading-4 text-white/30;
+  }
+
+  .agent-list {
+    @apply flex flex-col gap-1;
+  }
+
+  .agent-list-item {
+    @apply flex items-center gap-1 rounded-xl px-1 py-1 transition hover:bg-white/[0.035];
+  }
+
+  .agent-list-item-active {
+    @apply border border-emerald-300/15 bg-emerald-300/10;
+  }
+
+  .agent-list-item-button {
+    @apply flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-lg px-2 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40;
+  }
+
+  .agent-list-item-name {
+    @apply flex w-full min-w-0 items-center gap-1.5 text-xs font-medium text-white/80;
+  }
+
+  .agent-list-item-model {
+    @apply truncate text-[11px] text-white/35;
+  }
+
+  .agent-list-item-delete {
+    @apply flex size-7 shrink-0 items-center justify-center rounded-lg text-white/25 opacity-0 outline-none transition hover:bg-white/[0.06] hover:text-white/70 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-emerald-300/40 group-hover/agent:opacity-100;
+  }
+
+  .agent-empty-state {
+    @apply mx-auto flex h-full max-w-md flex-col items-center justify-center gap-5 px-5 py-10;
+  }
+
+  .agent-setup {
+    @apply grid h-full w-full grid-rows-[68px_minmax(0,1fr)] overflow-hidden;
+  }
+
+  .agent-setup-form {
+    @apply min-h-0 space-y-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6;
+    scrollbar-color: rgb(255 255 255 / 12%) transparent;
+    scrollbar-width: thin;
+  }
+
+  .agent-setup-row {
+    @apply grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4;
+  }
+
+  .agent-setup-field {
+    @apply flex min-w-0 flex-col gap-1;
+  }
+
+  .agent-setup-input {
+    @apply h-9 w-full border-white/8 bg-white/[0.035] text-xs text-white/75 focus-visible:border-emerald-300/30 focus-visible:ring-emerald-300/15 dark:bg-white/[0.035];
+  }
+
+  .agent-setup-actions {
+    @apply flex items-center justify-end gap-2 pt-1;
   }
 }
 

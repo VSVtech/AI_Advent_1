@@ -1,723 +1,97 @@
 'use client';
 
-import { tokenize, type ShjToken } from '@speed-highlight/core';
-import {
-  ArrowUp,
-  Bot,
-  CircleAlert,
-  Sparkles,
-  Square,
-  UserRound,
-} from 'lucide-react';
-import {
-  type KeyboardEvent,
-  type SyntheticEvent,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { Bot } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
-import { AppSections, type AppSection } from '@/components/app-sections';
-import { MarkdownMessage } from '@/components/markdown-message';
-import { SectionHeader } from '@/components/section-header';
-import { SystemPromptControl } from '@/components/system-prompt-control';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Message,
-  MessageAvatar,
-  MessageContent,
-  MessageFooter,
-  MessageHeader,
-} from '@/components/ui/message';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import { useAvailableModels } from '@/hooks/use-available-models';
-import {
-  calculateMaxOutputTokens,
-  DEFAULT_MODEL,
-  DEFAULT_TARGET_OUTPUT_TOKENS,
-  DEFAULT_TEMPERATURE,
-  isValidTargetOutputTokens,
-  isValidTemperature,
-  MAX_TARGET_OUTPUT_TOKENS,
-  MAX_TEMPERATURE,
-  MIN_TARGET_OUTPUT_TOKENS,
-  MIN_TEMPERATURE,
-} from '@/lib/chat-constraints';
-import {
-  buildSelectorSystemPrompt,
-  isValidCustomSystemPrompt,
-  MAX_CUSTOM_SYSTEM_PROMPT_LENGTH,
-} from '@/lib/chat-prompts';
-import type {
-  ApiChatMessage,
-  ChatErrorPayload,
-  ChatMessage,
-  ChatOutputFormat,
-  ChatRequest,
-  ChatStreamEvent,
-} from '@/lib/chat-types';
-import { readChatStream } from '@/lib/read-chat-stream';
+import { AgentChat } from '@/components/agent-chat';
+import { AgentSetup } from '@/components/agent-setup';
+import { AgentSidebar } from '@/components/agent-sidebar';
+import { Agent, type AgentConfig } from '@/lib/agent';
 
-const suggestions = [
-  'Объясни сложную тему простыми словами',
-  'Помоги придумать структуру проекта',
-  'Разбери идею и найди слабые места',
-];
-
-const outputFormats: Array<{
-  value: ChatOutputFormat;
-  label: string;
-}> = [
-  { value: 'text', label: 'Text' },
-  { value: 'json', label: 'JSON' },
-  { value: 'xml', label: 'XML' },
-  { value: 'yaml', label: 'YAML' },
-];
-
-function createId(): string {
-  return crypto.randomUUID();
-}
-
-function toApiMessages(messages: ChatMessage[]): ApiChatMessage[] {
-  return messages
-    .filter((message) => message.content.trim().length > 0)
-    .map(({ role, content }) => ({ role, content }));
-}
-
-type StructuredFormat = Exclude<ChatOutputFormat, 'text'>;
-
-type HighlightToken = {
-  text: string;
-  type?: ShjToken;
-};
-
-function StructuredMessage({
-  content,
-  format,
-}: {
-  content: string;
-  format: StructuredFormat;
-}) {
-  const [tokens, setTokens] = useState<HighlightToken[]>([{ text: content }]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const nextTokens: HighlightToken[] = [];
-
-    void tokenize(content, format, (text, type) => {
-      if (text) nextTokens.push({ text, type });
-    }).then(() => {
-      if (!cancelled) {
-        setTokens(nextTokens.length ? nextTokens : [{ text: content }]);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [content, format]);
-
-  return (
-    <div className="structured-output-frame">
-      <div className="structured-output-header">
-        <span>{format.toUpperCase()}</span>
-      </div>
-      <pre className="structured-output">
-        <code>
-          {tokens.map((token, index) => (
-            <span
-              key={`${index}-${token.type ?? 'plain'}`}
-              className={token.type ? `syntax-${token.type}` : undefined}
-            >
-              {token.text}
-            </span>
-          ))}
-        </code>
-      </pre>
-    </div>
-  );
-}
+type View = 'empty' | 'setup' | 'chat';
 
 export default function Home() {
-  const [activeSection, setActiveSection] = useState<AppSection>('chat');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
-  const [outputFormat, setOutputFormat] = useState<ChatOutputFormat>('text');
-  const [temperature, setTemperature] = useState(String(DEFAULT_TEMPERATURE));
-  const parsedTemperature = temperature.trim() ? Number(temperature) : NaN;
-  const hasInvalidTemperature = !isValidTemperature(parsedTemperature);
-  const [targetOutputTokens, setTargetOutputTokens] = useState(
-    String(DEFAULT_TARGET_OUTPUT_TOKENS),
-  );
-  const [model, setModel] = useState(DEFAULT_MODEL);
-  const [useSystemPrompt, setUseSystemPrompt] = useState(true);
-  const [useSelectorSystemPrompt, setUseSelectorSystemPrompt] = useState(true);
-  const [customSystemPrompt, setCustomSystemPrompt] = useState<string | null>(
-    null,
-  );
-  const parsedTargetOutputTokens = Number(targetOutputTokens);
-  const generatedSystemPrompt = isValidTargetOutputTokens(
-    parsedTargetOutputTokens,
-  )
-    ? buildSelectorSystemPrompt(outputFormat, parsedTargetOutputTokens)
-    : '';
-  const hasInvalidCustomSystemPrompt =
-    useSystemPrompt &&
-    !useSelectorSystemPrompt &&
-    !isValidCustomSystemPrompt(customSystemPrompt);
-  const calculatedMaxOutputTokens = isValidTargetOutputTokens(
-    parsedTargetOutputTokens,
-  )
-    ? calculateMaxOutputTokens(parsedTargetOutputTokens)
-    : null;
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const endOfMessagesRef = useRef<HTMLDivElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const [view, setView] = useState<View>('empty');
+  const agentsRef = useRef<Agent[]>(agents);
 
   useEffect(() => {
-    if (activeSection !== 'chat') return;
-    endOfMessagesRef.current?.scrollIntoView({
-      behavior: isGenerating ? 'auto' : 'smooth',
-      block: 'end',
-    });
-  }, [messages, isGenerating, activeSection]);
+    agentsRef.current = agents;
+  }, [agents]);
 
+  // Every Agent owns a live fetch/stream connection once it starts
+  // generating; disposing all of them on unmount guarantees no request keeps
+  // running (and no state update fires) after the page itself is gone.
   useEffect(() => {
-    return () => abortControllerRef.current?.abort();
+    return () => {
+      for (const agent of agentsRef.current) agent.dispose();
+    };
   }, []);
 
-  const { models: availableModels, error: modelsError } = useAvailableModels();
-  const selectedModel = availableModels.includes(model)
-    ? model
-    : (availableModels[0] ?? DEFAULT_MODEL);
+  const activeAgent = agents.find((agent) => agent.id === activeAgentId) ?? null;
 
-  const updateAssistant = (
-    id: string,
-    update: (message: ChatMessage) => ChatMessage,
-  ) => {
-    setMessages((current) =>
-      current.map((message) => (message.id === id ? update(message) : message)),
-    );
+  const handleCreate = (config: AgentConfig, name: string) => {
+    const agent = new Agent(config, name);
+    setAgents((current) => [...current, agent]);
+    setActiveAgentId(agent.id);
+    setView('chat');
   };
 
-  const removeEmptyAssistant = (id: string, status: 'stopped' | 'error') => {
-    setMessages((current) =>
-      current.flatMap((message) => {
-        if (message.id !== id) return [message];
-        return message.content.trim() ? [{ ...message, status }] : [];
-      }),
-    );
+  const handleSelect = (id: string) => {
+    setActiveAgentId(id);
+    setView('chat');
   };
 
-  const sendMessage = async (rawContent?: string) => {
-    const content = (rawContent ?? input).trim();
-    if (!content || isGenerating) return;
-
-    if (!isValidTargetOutputTokens(parsedTargetOutputTokens)) {
-      setError(
-        `Укажите целевую длину от ${MIN_TARGET_OUTPUT_TOKENS} до ${MAX_TARGET_OUTPUT_TOKENS} токенов.`,
-      );
-      return;
-    }
-
-    if (hasInvalidCustomSystemPrompt) {
-      setError(
-        `Введите системный промпт от 1 до ${MAX_CUSTOM_SYSTEM_PROMPT_LENGTH} символов.`,
-      );
-      return;
-    }
-
-    if (hasInvalidTemperature) {
-      setError(
-        `Укажите температуру от ${MIN_TEMPERATURE} до ${MAX_TEMPERATURE}.`,
-      );
-      return;
-    }
-
-    const userMessage: ChatMessage = {
-      id: createId(),
-      role: 'user',
-      content,
-      status: 'complete',
-    };
-    const assistantMessage: ChatMessage = {
-      id: createId(),
-      role: 'assistant',
-      content: '',
-      status: 'streaming',
-      format: outputFormat,
-    };
-    const requestMessages = toApiMessages([...messages, userMessage]);
-    const controller = new AbortController();
-
-    abortControllerRef.current = controller;
-    setMessages((current) => [...current, userMessage, assistantMessage]);
-    setInput('');
-    setError(null);
-    setIsGenerating(true);
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: requestMessages,
-          format: outputFormat,
-          targetOutputTokens: parsedTargetOutputTokens,
-          temperature: parsedTemperature,
-          model: selectedModel,
-          useSystemPrompt,
-          useSelectorSystemPrompt,
-          ...(useSystemPrompt && !useSelectorSystemPrompt
-            ? { customSystemPrompt: customSystemPrompt ?? '' }
-            : {}),
-        } satisfies ChatRequest),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const payload = (await response
-          .json()
-          .catch(() => null)) as ChatErrorPayload | null;
-        throw new Error(
-          payload?.error.message ?? 'Не удалось получить ответ от DeepSeek.',
-        );
-      }
-
-      if (!response.body) {
-        throw new Error('DeepSeek вернул пустой ответ. Попробуйте ещё раз.');
-      }
-
-      let completed = false;
-
-      await readChatStream(response.body, (event: ChatStreamEvent) => {
-        if (event.type === 'delta') {
-          updateAssistant(assistantMessage.id, (message) => ({
-            ...message,
-            content: message.content + event.content,
-          }));
-        } else if (event.type === 'done') {
-          completed = true;
-          updateAssistant(assistantMessage.id, (message) => ({
-            ...message,
-            status: 'complete',
-            ...(event.outputTokens === undefined
-              ? {}
-              : { outputTokens: event.outputTokens }),
-          }));
-        } else if (event.type === 'error') {
-          throw new Error(event.message);
-        }
-      });
-
-      if (!completed) {
-        updateAssistant(assistantMessage.id, (message) => ({
-          ...message,
-          status: 'complete',
-        }));
-      }
-    } catch (caughtError) {
-      if (controller.signal.aborted) {
-        removeEmptyAssistant(assistantMessage.id, 'stopped');
-      } else {
-        removeEmptyAssistant(assistantMessage.id, 'error');
-        setError(
-          caughtError instanceof Error
-            ? caughtError.message
-            : 'Не удалось получить ответ от DeepSeek.',
-        );
-      }
-    } finally {
-      if (abortControllerRef.current === controller) {
-        abortControllerRef.current = null;
-      }
-      setIsGenerating(false);
-      window.setTimeout(() => textareaRef.current?.focus(), 0);
+  const handleDelete = (id: string) => {
+    setAgents((current) => {
+      const agent = current.find((item) => item.id === id);
+      agent?.dispose();
+      return current.filter((item) => item.id !== id);
+    });
+    if (activeAgentId === id) {
+      setActiveAgentId(null);
+      setView('empty');
     }
   };
-
-  const handleSubmit = (event: SyntheticEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    void sendMessage();
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      void sendMessage();
-    }
-  };
-
-  const stopGeneration = () => abortControllerRef.current?.abort();
-
-  const clearChat = () => {
-    abortControllerRef.current?.abort();
-    setMessages([]);
-    setError(null);
-    setInput('');
-    window.setTimeout(() => textareaRef.current?.focus(), 0);
-  };
-
-  const latestAssistant = [...messages]
-    .reverse()
-    .find((message) => message.role === 'assistant');
-  const latestOutputTokens = [...messages]
-    .reverse()
-    .find(
-      (message) =>
-        message.role === 'assistant' &&
-        typeof message.outputTokens === 'number',
-    )?.outputTokens;
 
   return (
     <main className="chat-shell">
-      <AppSections
-        activeSection={activeSection}
-        onSectionChange={setActiveSection}
-      >
-        <div className="chat-frame">
-          <SectionHeader
-            title="Чат"
-            subtitle="Локальный AI-диалог"
-            clearLabel="Очистить диалог"
-            canClear={messages.length > 0}
-            onClear={clearChat}
-            model={selectedModel}
-            availableModels={availableModels}
-            onModelChange={setModel}
-            modelDisabled={isGenerating}
-            modelsError={modelsError}
-          />
+      <div className="app-frame flex flex-col md:flex-row">
+        <AgentSidebar
+          agents={agents}
+          activeAgentId={activeAgentId}
+          onSelect={handleSelect}
+          onCreate={() => setView('setup')}
+          onDelete={handleDelete}
+        />
 
-          <section className="chat-content" aria-label="История диалога">
-            {messages.length === 0 ? (
-              <div className="empty-state">
-                <span className="empty-icon" aria-hidden="true">
-                  <Bot className="size-7" />
-                </span>
-                <div className="space-y-2 text-center">
-                  <h2 className="text-xl font-semibold tracking-[-0.025em] text-white sm:text-2xl">
-                    О чём поговорим?
-                  </h2>
-                  <p className="mx-auto max-w-md text-sm leading-6 text-white/45">
-                    Ответы приходят напрямую из DeepSeek. История останется
-                    только до обновления страницы.
-                  </p>
-                </div>
-
-                <div className="suggestion-grid">
-                  {suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      className="suggestion-card"
-                      disabled={isGenerating}
-                      onClick={() => void sendMessage(suggestion)}
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="messages-list">
-                {messages.map((message) => {
-                  const isUser = message.role === 'user';
-
-                  return (
-                    <Message
-                      key={message.id}
-                      align={isUser ? 'end' : 'start'}
-                      className="message-row"
-                    >
-                      <MessageAvatar
-                        className={isUser ? 'user-avatar' : 'assistant-avatar'}
-                        aria-hidden="true"
-                      >
-                        {isUser ? <UserRound /> : <Sparkles />}
-                      </MessageAvatar>
-                      <MessageContent
-                        className={isUser ? 'items-end' : undefined}
-                      >
-                        <MessageHeader className="message-author">
-                          {isUser ? 'Вы' : 'DeepSeek'}
-                        </MessageHeader>
-                        <div
-                          className={
-                            isUser ? 'user-message' : 'assistant-message'
-                          }
-                        >
-                          {message.content ? (
-                            isUser ? (
-                              <p className="whitespace-pre-wrap">
-                                {message.content}
-                              </p>
-                            ) : message.format && message.format !== 'text' ? (
-                              <StructuredMessage
-                                content={message.content}
-                                format={message.format}
-                              />
-                            ) : (
-                              <div className="markdown-body">
-                                <MarkdownMessage content={message.content} />
-                              </div>
-                            )
-                          ) : (
-                            <span
-                              className="typing-indicator"
-                              aria-label="DeepSeek отвечает"
-                            >
-                              <i />
-                              <i />
-                              <i />
-                            </span>
-                          )}
-                        </div>
-                        {!isUser && message.status === 'stopped' ? (
-                          <MessageFooter className="message-status">
-                            Генерация остановлена
-                          </MessageFooter>
-                        ) : null}
-                        {!isUser && message.status === 'error' ? (
-                          <MessageFooter className="message-status text-red-300/60">
-                            Ответ прерван
-                          </MessageFooter>
-                        ) : null}
-                      </MessageContent>
-                    </Message>
-                  );
-                })}
-                <div ref={endOfMessagesRef} className="h-px" />
-              </div>
-            )}
-          </section>
-
-          <footer className="composer-wrap">
-            {error ? (
-              <Alert variant="destructive" className="error-alert">
-                <CircleAlert />
-                <AlertTitle>Не удалось получить ответ</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            <div className="format-row">
-              <div className="length-controls">
-                <div className="format-control items-start">
-                  <label
-                    className="format-label"
-                    htmlFor="target-output-tokens"
-                  >
-                    <span className="sm:hidden">Целевая</span>
-                    <span className="hidden sm:inline">Целевая длина</span>
-                  </label>
-                  <input
-                    id="target-output-tokens"
-                    type="number"
-                    inputMode="numeric"
-                    min={MIN_TARGET_OUTPUT_TOKENS}
-                    max={MAX_TARGET_OUTPUT_TOKENS}
-                    step={50}
-                    value={targetOutputTokens}
-                    disabled={isGenerating}
-                    aria-invalid={
-                      !isValidTargetOutputTokens(parsedTargetOutputTokens) ||
-                      undefined
-                    }
-                    className="length-input"
-                    onChange={(event) =>
-                      setTargetOutputTokens(event.target.value)
-                    }
-                  />
-                </div>
-
-                <div className="format-control token-count-control items-start">
-                  <span className="format-label">
-                    <span className="sm:hidden">Максимум</span>
-                    <span className="hidden sm:inline">Макс. токенов</span>
-                  </span>
-                  <output
-                    className="token-count"
-                    aria-label="Рассчитанная максимальная длина ответа в токенах"
-                    aria-live="polite"
-                    title="Целевая длина плюс запас: 20%, но не менее 500 и не более 2000 токенов"
-                  >
-                    {calculatedMaxOutputTokens ?? '—'}
-                  </output>
-                </div>
-
-                <div className="format-control token-count-control items-start">
-                  <span className="format-label">
-                    <span className="sm:hidden">Факт</span>
-                    <span className="hidden sm:inline">Фактически</span>
-                  </span>
-                  <output
-                    className="token-count"
-                    aria-label="Фактическая длина последнего ответа в токенах"
-                    aria-live="polite"
-                    title="Фактическое число выходных токенов по данным DeepSeek"
-                  >
-                    {latestOutputTokens ?? '—'}
-                  </output>
-                </div>
-              </div>
-
-              <div className="ml-auto flex items-end gap-2 sm:gap-3">
-                <div className="format-control items-start">
-                  <label className="format-label" htmlFor="temperature">
-                    Температура
-                  </label>
-                  <Input
-                    id="temperature"
-                    type="number"
-                    inputMode="decimal"
-                    min={MIN_TEMPERATURE}
-                    max={MAX_TEMPERATURE}
-                    step={0.1}
-                    value={temperature}
-                    disabled={isGenerating}
-                    aria-invalid={hasInvalidTemperature || undefined}
-                    aria-describedby={
-                      hasInvalidTemperature ? 'temperature-error' : undefined
-                    }
-                    title="От 0 до 2. Ниже — меньше вариативность, выше — больше. По умолчанию 1."
-                    className="length-input w-[4.5rem] border-white/8 bg-white/[0.035] text-xs text-white/65 focus-visible:border-emerald-300/30 focus-visible:ring-emerald-300/15 disabled:bg-white/[0.035] aria-invalid:border-red-300/40 aria-invalid:ring-red-300/10 sm:w-24 md:text-xs dark:bg-white/[0.035] dark:disabled:bg-white/[0.035] dark:aria-invalid:border-red-300/40 dark:aria-invalid:ring-red-300/10"
-                    onChange={(event) => setTemperature(event.target.value)}
-                  />
-                </div>
-
-                <div className="format-control items-end">
-                  <span className="format-label">Формат ответа</span>
-                  <Select
-                    value={outputFormat}
-                    disabled={isGenerating}
-                    onValueChange={(value) => {
-                      if (
-                        typeof value === 'string' &&
-                        outputFormats.some((option) => option.value === value)
-                      ) {
-                        setOutputFormat(value as ChatOutputFormat);
-                      }
-                    }}
-                  >
-                    <SelectTrigger
-                      size="sm"
-                      className="format-trigger"
-                      aria-label="Формат ответа"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent align="start" className="format-menu">
-                      {outputFormats.map((option) => (
-                        <SelectItem
-                          key={option.value}
-                          value={option.value}
-                          className="format-option"
-                        >
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+        <div className="section-panel flex-1">
+          {view === 'setup' ? (
+            <AgentSetup
+              onCreate={handleCreate}
+              onCancel={() => setView(activeAgent ? 'chat' : 'empty')}
+            />
+          ) : view === 'chat' && activeAgent ? (
+            <AgentChat key={activeAgent.id} agent={activeAgent} />
+          ) : (
+            <div className="agent-empty-state">
+              <span className="empty-icon" aria-hidden="true">
+                <Bot className="size-7" />
+              </span>
+              <div className="space-y-2 text-center">
+                <h2 className="text-xl font-semibold tracking-[-0.025em] text-white sm:text-2xl">
+                  Нет активного агента
+                </h2>
+                <p className="mx-auto max-w-md text-sm leading-6 text-white/45">
+                  Создайте агента, чтобы начать диалог с DeepSeek. У каждого
+                  агента своя модель, настройки и история чата.
+                </p>
               </div>
             </div>
-
-            {hasInvalidTemperature ? (
-              <p
-                id="temperature-error"
-                role="alert"
-                className="mx-auto mb-2 max-w-3xl px-1 text-xs text-red-200"
-              >
-                Укажите температуру от {MIN_TEMPERATURE} до {MAX_TEMPERATURE}.
-              </p>
-            ) : null}
-
-            <SystemPromptControl
-              useSystemPrompt={useSystemPrompt}
-              useSelectorSystemPrompt={useSelectorSystemPrompt}
-              value={
-                useSelectorSystemPrompt
-                  ? generatedSystemPrompt
-                  : (customSystemPrompt ?? '')
-              }
-              hasInvalidCustomSystemPrompt={hasInvalidCustomSystemPrompt}
-              isGenerating={isGenerating}
-              onUseSystemPromptChange={setUseSystemPrompt}
-              onUseSelectorSystemPromptChange={(checked) => {
-                if (!checked && customSystemPrompt === null) {
-                  setCustomSystemPrompt(generatedSystemPrompt);
-                }
-                setUseSelectorSystemPrompt(checked);
-              }}
-              onValueChange={setCustomSystemPrompt}
-            />
-
-            <form className="composer" onSubmit={handleSubmit}>
-              <Textarea
-                ref={textareaRef}
-                aria-label="Сообщение для DeepSeek"
-                placeholder="Напишите сообщение…"
-                rows={1}
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={handleKeyDown}
-                className="composer-input"
-              />
-              {isGenerating ? (
-                <Button
-                  type="button"
-                  size="icon-lg"
-                  className="stop-button"
-                  aria-label="Остановить генерацию"
-                  onClick={stopGeneration}
-                >
-                  <Square className="size-3.5 fill-current" />
-                </Button>
-              ) : (
-                <Button
-                  type="submit"
-                  size="icon-lg"
-                  className="send-button"
-                  aria-label="Отправить сообщение"
-                  disabled={
-                    !input.trim() ||
-                    !isValidTargetOutputTokens(parsedTargetOutputTokens) ||
-                    hasInvalidTemperature ||
-                    hasInvalidCustomSystemPrompt
-                  }
-                >
-                  <ArrowUp className="size-[18px]" />
-                </Button>
-              )}
-            </form>
-            <p className="composer-hint">
-              Enter — отправить · Shift + Enter — новая строка
-            </p>
-          </footer>
-
-          <output className="sr-only" aria-live="polite" aria-atomic="true">
-            {isGenerating
-              ? 'DeepSeek отвечает'
-              : latestAssistant?.status === 'complete'
-                ? 'Ответ DeepSeek завершён'
-                : latestAssistant?.status === 'stopped'
-                  ? 'Генерация остановлена'
-                  : ''}
-          </output>
+          )}
         </div>
-      </AppSections>
+      </div>
     </main>
   );
 }

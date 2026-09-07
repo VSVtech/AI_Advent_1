@@ -5,9 +5,9 @@ import { useEffect, useState } from 'react';
 import { DEFAULT_MODEL } from '@/lib/chat-constraints';
 import type { ModelsResponsePayload } from '@/lib/chat-types';
 
-// Shared by the chat header (single-model picker) and the model benchmark
-// (runs every returned model), so both reflect the same token's actual
-// access rather than a hardcoded list.
+// Used by the agent setup screen's model picker, so the choice always
+// reflects the models this API token actually has access to rather than a
+// hardcoded list.
 export function useAvailableModels(): {
   models: string[];
   error: string | null;

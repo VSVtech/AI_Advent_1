@@ -30,6 +30,19 @@ export interface AgentSnapshot {
   error: string | null;
 }
 
+export interface PersistedAgentState {
+  id: string;
+  name: string;
+  config: AgentConfig;
+  createdAt: number;
+  messages: ChatMessage[];
+}
+
+type RestoredAgentState = Pick<
+  PersistedAgentState,
+  'id' | 'createdAt' | 'messages'
+>;
+
 function createId(): string {
   return crypto.randomUUID();
 }
@@ -78,12 +91,22 @@ export class Agent {
   private readonly listeners = new Set<() => void>();
   private snapshot: AgentSnapshot;
 
-  constructor(config: AgentConfig, name?: string) {
-    this.id = createId();
-    this.config = config;
-    this.createdAt = Date.now();
+  constructor(
+    config: AgentConfig,
+    name?: string,
+    restoredState?: RestoredAgentState,
+  ) {
+    this.id = restoredState?.id ?? createId();
+    this.config = { ...config };
+    this.createdAt = restoredState?.createdAt ?? Date.now();
     this.name = name?.trim() || `Агент · ${formatModelLabel(config.model)}`;
-    this.snapshot = { messages: this.messages, isGenerating: false, error: null };
+    this.messages =
+      restoredState?.messages.map((message) => ({ ...message })) ?? [];
+    this.snapshot = {
+      messages: this.messages,
+      isGenerating: false,
+      error: null,
+    };
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -94,6 +117,16 @@ export class Agent {
   };
 
   getSnapshot = (): AgentSnapshot => this.snapshot;
+
+  exportState(): PersistedAgentState {
+    return {
+      id: this.id,
+      name: this.name,
+      config: { ...this.config },
+      createdAt: this.createdAt,
+      messages: this.messages.map((message) => ({ ...message })),
+    };
+  }
 
   private notify() {
     this.snapshot = {
@@ -160,7 +193,8 @@ export class Agent {
           model: this.config.model,
           useSystemPrompt: this.config.useSystemPrompt,
           useSelectorSystemPrompt: this.config.useSelectorSystemPrompt,
-          ...(this.config.useSystemPrompt && !this.config.useSelectorSystemPrompt
+          ...(this.config.useSystemPrompt &&
+          !this.config.useSelectorSystemPrompt
             ? { customSystemPrompt: this.config.customSystemPrompt ?? '' }
             : {}),
         } satisfies ChatRequest),

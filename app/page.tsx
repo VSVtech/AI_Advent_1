@@ -7,6 +7,7 @@ import { AgentChat } from '@/components/agent-chat';
 import { AgentSetup } from '@/components/agent-setup';
 import { AgentSidebar } from '@/components/agent-sidebar';
 import { Agent, type AgentConfig } from '@/lib/agent';
+import { loadAgentSessions, saveAgentSessions } from '@/lib/agent-storage';
 
 type View = 'empty' | 'setup' | 'chat';
 
@@ -14,7 +15,47 @@ export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const [view, setView] = useState<View>('empty');
+  const [hasRestoredSessions, setHasRestoredSessions] = useState(false);
   const agentsRef = useRef<Agent[]>(agents);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      const restored = loadAgentSessions(window.localStorage);
+      setAgents(restored.agents);
+      setActiveAgentId(restored.activeAgentId);
+      setView(restored.activeAgentId ? 'chat' : 'empty');
+      setHasRestoredSessions(true);
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    if (!hasRestoredSessions) return;
+
+    let timeoutId: number | null = null;
+    const persist = () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      timeoutId = null;
+      saveAgentSessions(window.localStorage, agents, activeAgentId);
+    };
+    const schedulePersist = () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(persist, 100);
+    };
+    const unsubscribers = agents.map((agent) =>
+      agent.subscribe(schedulePersist),
+    );
+
+    persist();
+    window.addEventListener('pagehide', persist);
+
+    return () => {
+      persist();
+      window.removeEventListener('pagehide', persist);
+      for (const unsubscribe of unsubscribers) unsubscribe();
+    };
+  }, [activeAgentId, agents, hasRestoredSessions]);
 
   useEffect(() => {
     agentsRef.current = agents;
@@ -29,7 +70,8 @@ export default function Home() {
     };
   }, []);
 
-  const activeAgent = agents.find((agent) => agent.id === activeAgentId) ?? null;
+  const activeAgent =
+    agents.find((agent) => agent.id === activeAgentId) ?? null;
 
   const handleCreate = (config: AgentConfig, name: string) => {
     const agent = new Agent(config, name);

@@ -20,6 +20,7 @@ function agentState(
     name: 'Сохранённый агент',
     config: createDefaultAgentConfig(),
     createdAt: 123,
+    contextSummary: null,
     messages: [
       {
         id: 'message-1',
@@ -154,6 +155,51 @@ describe('долговременное хранение сессий агент�
 
     expect(restored.agents[0].config.contextWindowTokens).toBe(2000);
     expect(restored.agents[1].config.contextWindowTokens).toBe(1_000_000);
+  });
+
+  it('сохраняет и восстанавливает summary отдельно от последних сообщений', () => {
+    const state = agentState({
+      contextSummary: {
+        content: 'Пользователь работает над агентом с DeepSeek.',
+        summarizedMessageCount: 10,
+        updatedAt: 456,
+      },
+    });
+
+    const restored = deserializeAgentSessions(
+      JSON.stringify({ version: 1, agents: [state], activeAgentId: state.id }),
+    );
+
+    expect(restored.agents[0].exportState().contextSummary).toEqual(
+      state.contextSummary,
+    );
+    expect(restored.agents[0].getSnapshot().messages).toEqual(state.messages);
+  });
+
+  it('сохраняет совместимость со сессиями без summary и игнорирует повреждённую сводку', () => {
+    const stateWithoutSummary = agentState();
+    const { contextSummary: _contextSummary, ...legacyState } =
+      stateWithoutSummary;
+    const invalidSummaryState = {
+      ...agentState({ id: 'agent-2' }),
+      contextSummary: {
+        content: '',
+        summarizedMessageCount: -1,
+        updatedAt: Number.NaN,
+      },
+    };
+
+    const restored = deserializeAgentSessions(
+      JSON.stringify({
+        version: 1,
+        agents: [legacyState, invalidSummaryState],
+        activeAgentId: legacyState.id,
+      }),
+    );
+
+    expect(restored.agents).toHaveLength(2);
+    expect(restored.agents[0].exportState().contextSummary).toBeNull();
+    expect(restored.agents[1].exportState().contextSummary).toBeNull();
   });
 
   it('игнорирует повреждённые значения счётчиков токенов', () => {

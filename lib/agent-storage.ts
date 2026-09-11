@@ -1,4 +1,10 @@
-import { Agent, type AgentConfig, type PersistedAgentState } from '@/lib/agent';
+import {
+  Agent,
+  MAX_CONTEXT_SUMMARY_LENGTH,
+  type AgentConfig,
+  type AgentContextSummary,
+  type PersistedAgentState,
+} from '@/lib/agent';
 import {
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   isValidContextWindowTokens,
@@ -160,6 +166,29 @@ function restoreConfig(value: unknown): AgentConfig | null {
   };
 }
 
+function restoreContextSummary(value: unknown): AgentContextSummary | null {
+  if (
+    !isRecord(value) ||
+    typeof value.content !== 'string' ||
+    !value.content.trim() ||
+    value.content.length > MAX_CONTEXT_SUMMARY_LENGTH ||
+    typeof value.summarizedMessageCount !== 'number' ||
+    !Number.isInteger(value.summarizedMessageCount) ||
+    value.summarizedMessageCount <= 0 ||
+    typeof value.updatedAt !== 'number' ||
+    !Number.isFinite(value.updatedAt) ||
+    value.updatedAt < 0
+  ) {
+    return null;
+  }
+
+  return {
+    content: value.content,
+    summarizedMessageCount: value.summarizedMessageCount,
+    updatedAt: value.updatedAt,
+  };
+}
+
 function restoreMessage(value: unknown): ChatMessage | null {
   if (
     !isRecord(value) ||
@@ -254,11 +283,13 @@ function restoreAgent(value: unknown): Agent | null {
     const restored = restoreMessage(message);
     return restored ? [restored] : [];
   });
+  const contextSummary = restoreContextSummary(value.contextSummary);
 
   return new Agent(config, value.name, {
     id: value.id,
     createdAt: value.createdAt,
     messages,
+    contextSummary,
   });
 }
 

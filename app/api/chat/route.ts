@@ -8,7 +8,7 @@ import {
   DEFAULT_TARGET_OUTPUT_TOKENS,
   DEFAULT_TEMPERATURE,
   isValidModel,
-  isValidTargetOutputTokens,
+  isValidTargetOutputTokensOrNull,
   isValidTemperature,
   MAX_TEMPERATURE,
   MIN_TEMPERATURE,
@@ -18,6 +18,7 @@ import {
   isValidCustomSystemPrompt,
   MAX_CUSTOM_SYSTEM_PROMPT_LENGTH,
 } from '@/lib/chat-prompts';
+import { isVisionModel } from '@/lib/file-attachments';
 import {
   isStructuredOutputFormat,
   type StructuredOutputFormat,
@@ -35,6 +36,7 @@ import {
   mappedUpstreamError,
   type DeepSeekResponsePayload,
   extractOutputTokens,
+  extractInputTokenUsage,
   extractOutputText,
 } from '@/lib/server/deepseek';
 
@@ -144,7 +146,10 @@ async function generateStructuredOutput({
     const content = payload ? extractOutputText(payload) : null;
 
     if (payload && content && validateStructuredOutput(content, format)) {
-      return completedOutputResponse(content, extractOutputTokens(payload));
+      return completedOutputResponse(content, {
+        outputTokens: extractOutputTokens(payload),
+        ...extractInputTokenUsage(payload),
+      });
     }
   }
 
@@ -190,10 +195,15 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
+  // `null` explicitly disables the target length (and, with it, the
+  // derived max-output cap below) — only `undefined` falls back to the
+  // default target.
   const targetOutputTokens =
-    body.targetOutputTokens ?? DEFAULT_TARGET_OUTPUT_TOKENS;
+    body.targetOutputTokens === undefined
+      ? DEFAULT_TARGET_OUTPUT_TOKENS
+      : body.targetOutputTokens;
 
-  if (!isValidTargetOutputTokens(targetOutputTokens)) {
+  if (!isValidTargetOutputTokensOrNull(targetOutputTokens)) {
     return jsonError(400, {
       code: 'invalid_target_output_tokens',
       message: 'Целевая длина ответа указана некорректно.',
@@ -218,6 +228,19 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(400, {
       code: 'invalid_model',
       message: 'Некорректный идентификатор модели.',
+    });
+  }
+
+  const hasImages = body.messages.some(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some((part) => part.type === 'input_image'),
+  );
+
+  if (hasImages && !isVisionModel(model)) {
+    return jsonError(400, {
+      code: 'vision_model_required',
+      message: 'Для работы с изображениями выберите модель DeepSeek Flash.',
     });
   }
 
@@ -288,7 +311,7 @@ export async function POST(request: Request): Promise<Response> {
         stream: true,
         reasoning: { effort: 'none' },
         text: { format: { type: 'text' } },
-        ...(systemPrompt === null ? {} : { instructions: systemPrompt }),
+        ...(systemPrompt ? { instructions: systemPrompt } : {}),
       }),
       cache: 'no-store',
       signal: request.signal,

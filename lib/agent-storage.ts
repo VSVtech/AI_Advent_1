@@ -1,14 +1,22 @@
 import { Agent, type AgentConfig, type PersistedAgentState } from '@/lib/agent';
 import {
   isValidModel,
-  isValidTargetOutputTokens,
+  isValidTargetOutputTokensOrNull,
   isValidTemperature,
 } from '@/lib/chat-constraints';
+import {
+  classifyAttachment,
+  isDeepSeekFileId,
+  MAX_TEXT_ATTACHMENT_BYTES,
+  MAX_TOTAL_TEXT_ATTACHMENT_BYTES,
+  validateAttachmentFiles,
+} from '@/lib/file-attachments';
 import {
   isValidCustomSystemPrompt,
   MAX_CUSTOM_SYSTEM_PROMPT_LENGTH,
 } from '@/lib/chat-prompts';
 import type {
+  ChatAttachment,
   ChatMessage,
   ChatMessageStatus,
   ChatOutputFormat,
@@ -51,6 +59,62 @@ function isMessageStatus(value: unknown): value is ChatMessageStatus {
   );
 }
 
+function restoreAttachment(value: unknown): ChatAttachment | null {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' ||
+    !value.id.trim() ||
+    (value.kind !== 'image' && value.kind !== 'text') ||
+    typeof value.name !== 'string' ||
+    typeof value.mediaType !== 'string' ||
+    typeof value.size !== 'number'
+  ) {
+    return null;
+  }
+
+  const descriptor = {
+    name: value.name,
+    type: value.mediaType,
+    size: value.size,
+  };
+  const validation = validateAttachmentFiles([descriptor]);
+
+  if (!validation.ok || classifyAttachment(descriptor) !== value.kind) {
+    return null;
+  }
+
+  if (value.kind === 'image') {
+    return isDeepSeekFileId(value.fileId)
+      ? {
+          id: value.id,
+          kind: value.kind,
+          name: value.name,
+          mediaType: value.mediaType,
+          size: value.size,
+          fileId: value.fileId,
+        }
+      : null;
+  }
+
+  if (
+    typeof value.text !== 'string' ||
+    !value.text.trim() ||
+    value.text.includes('\u0000') ||
+    new TextEncoder().encode(value.text).byteLength > MAX_TEXT_ATTACHMENT_BYTES
+  ) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    kind: value.kind,
+    name: value.name,
+    mediaType: value.mediaType,
+    size: value.size,
+    text: value.text,
+  };
+}
+
 function restoreConfig(value: unknown): AgentConfig | null {
   if (!isRecord(value)) return null;
 
@@ -64,7 +128,7 @@ function restoreConfig(value: unknown): AgentConfig | null {
     !isValidModel(value.model) ||
     !isValidTemperature(value.temperature) ||
     !isOutputFormat(value.outputFormat) ||
-    !isValidTargetOutputTokens(value.targetOutputTokens) ||
+    !isValidTargetOutputTokensOrNull(value.targetOutputTokens) ||
     typeof value.useSystemPrompt !== 'boolean' ||
     typeof value.useSelectorSystemPrompt !== 'boolean' ||
     !hasValidCustomSystemPrompt ||
@@ -106,12 +170,43 @@ function restoreMessage(value: unknown): ChatMessage | null {
         ? 'stopped'
         : rawStatus;
   const format = isOutputFormat(value.format) ? value.format : undefined;
-  const outputTokens =
-    typeof value.outputTokens === 'number' &&
-    Number.isInteger(value.outputTokens) &&
-    value.outputTokens >= 0
-      ? value.outputTokens
+  const restoreTokenCount = (tokenCount: unknown): number | undefined =>
+    typeof tokenCount === 'number' &&
+    Number.isInteger(tokenCount) &&
+    tokenCount >= 0
+      ? tokenCount
       : undefined;
+  const messageTokens = restoreTokenCount(value.messageTokens);
+  const contextTokens = restoreTokenCount(value.contextTokens);
+  const cachedContextTokens = restoreTokenCount(value.cachedContextTokens);
+  const outputTokens = restoreTokenCount(value.outputTokens);
+  const restoredAttachments =
+    value.role === 'user' && Array.isArray(value.attachments)
+      ? value.attachments.flatMap((attachment) => {
+          const restored = restoreAttachment(attachment);
+          return restored ? [restored] : [];
+        })
+      : [];
+  const hasValidAttachmentSet = validateAttachmentFiles(
+    restoredAttachments.map((attachment) => ({
+      name: attachment.name,
+      size: attachment.size,
+      type: attachment.mediaType,
+    })),
+  ).ok;
+  const restoredTextBytes = restoredAttachments.reduce(
+    (total, attachment) =>
+      total +
+      (attachment.kind === 'text' && attachment.text
+        ? new TextEncoder().encode(attachment.text).byteLength
+        : 0),
+    0,
+  );
+  const attachments =
+    hasValidAttachmentSet &&
+    restoredTextBytes <= MAX_TOTAL_TEXT_ATTACHMENT_BYTES
+      ? restoredAttachments
+      : [];
 
   return {
     id: value.id,
@@ -119,6 +214,10 @@ function restoreMessage(value: unknown): ChatMessage | null {
     content: value.content,
     status,
     ...(format === undefined ? {} : { format }),
+    ...(attachments.length ? { attachments } : {}),
+    ...(messageTokens === undefined ? {} : { messageTokens }),
+    ...(contextTokens === undefined ? {} : { contextTokens }),
+    ...(cachedContextTokens === undefined ? {} : { cachedContextTokens }),
     ...(outputTokens === undefined ? {} : { outputTokens }),
   };
 }

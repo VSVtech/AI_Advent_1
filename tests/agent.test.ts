@@ -50,9 +50,11 @@ describe('Agent', () => {
   });
 
   it('строит корректный запрос к /api/chat и передаёт свою конфигурацию', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
+      );
     vi.stubGlobal('fetch', fetchMock);
 
     const agent = new Agent(
@@ -82,10 +84,132 @@ describe('Agent', () => {
     });
   });
 
+  it('пробрасывает отключённую целевую длину (null) в запрос как есть', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const agent = new Agent(config({ targetOutputTokens: null }));
+    await agent.sendMessage('Привет');
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as ChatRequest;
+    expect(body.targetOutputTokens).toBeNull();
+  });
+
+  it('добавляет текстовый файл в запрос и сохраняет его в истории', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const agent = new Agent(config());
+    const file = new File(['Ключ: 42'], 'notes.txt', { type: 'text/plain' });
+
+    await agent.sendMessage('Прочитай файл', [file]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as ChatRequest;
+    expect(body.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'Прочитай файл' },
+          {
+            type: 'input_text',
+            text: 'Начало файла "notes.txt"\nКлюч: 42\nКонец файла "notes.txt"',
+          },
+        ],
+      },
+    ]);
+    expect(agent.getSnapshot().messages[0]).toMatchObject({
+      content: 'Прочитай файл',
+      attachments: [
+        {
+          kind: 'text',
+          name: 'notes.txt',
+          mediaType: 'text/plain',
+          text: 'Ключ: 42',
+        },
+      ],
+    });
+  });
+
+  it('загружает изображение один раз и отправляет в чат его file_id', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/files') {
+        return Promise.resolve(
+          Response.json({
+            file: {
+              fileId: 'file-api-picture-1',
+              name: 'picture.png',
+              mediaType: 'image/png',
+              size: 4,
+            },
+          }),
+        );
+      }
+      return Promise.resolve(
+        sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const agent = new Agent(config());
+    const file = new File(['image'], 'picture.png', { type: 'image/png' });
+
+    await agent.sendMessage('', [file]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/files');
+    expect(fetchMock.mock.calls[0][1].body).toBeInstanceOf(FormData);
+    const [, chatInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    const body = JSON.parse(chatInit.body as string) as ChatRequest;
+    expect(body.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: 'Проанализируй прикреплённые файлы и расскажи главное.',
+          },
+          { type: 'input_text', text: 'Изображение "picture.png"' },
+          { type: 'input_image', file_id: 'file-api-picture-1' },
+        ],
+      },
+    ]);
+    expect(agent.getSnapshot().messages[0].attachments?.[0]).toMatchObject({
+      kind: 'image',
+      fileId: 'file-api-picture-1',
+    });
+  });
+
+  it('не отправляет изображение моделью без поддержки vision', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const agent = new Agent(config({ model: 'deepseek-v4-pro' }));
+
+    await agent.sendMessage('Что на картинке?', [
+      new File(['image'], 'picture.png', { type: 'image/png' }),
+    ]);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(agent.getSnapshot().error).toContain('DeepSeek Flash');
+    expect(agent.getSnapshot().messages).toEqual([]);
+  });
+
   it('не отправляет пустое сообщение и не запускает второй запрос параллельно', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
+      );
     vi.stubGlobal('fetch', fetchMock);
 
     const agent = new Agent(config());
@@ -103,13 +227,15 @@ describe('Agent', () => {
   it('накапливает дельты и сохраняет число выходных токенов по завершении', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        sseResponse([
-          'event: delta\ndata: {"content":"При"}\n\n',
-          'event: delta\ndata: {"content":"вет"}\n\n',
-          'event: done\ndata: {"finishReason":"stop","outputTokens":7}\n\n',
-        ]),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([
+            'event: delta\ndata: {"content":"При"}\n\n',
+            'event: delta\ndata: {"content":"вет"}\n\n',
+            'event: done\ndata: {"finishReason":"stop","outputTokens":7}\n\n',
+          ]),
+        ),
     );
 
     const agent = new Agent(config());
@@ -124,6 +250,12 @@ describe('Agent', () => {
     const snapshot = agent.getSnapshot();
     expect(snapshot.isGenerating).toBe(false);
     expect(snapshot.messages).toHaveLength(2);
+    expect(snapshot.messages[0]).toMatchObject({
+      role: 'user',
+      content: 'Привет',
+      // "Привет" — 6 символов, оценка ~4 символа/токен, округление вверх.
+      messageTokens: 2,
+    });
     expect(snapshot.messages[1]).toMatchObject({
       role: 'assistant',
       content: 'Привет',
@@ -134,12 +266,58 @@ describe('Agent', () => {
     expect(seenContents).toContain('Привет');
   });
 
+  it('сохраняет точное число входных токенов (истории) и кэшированных из события done', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([
+            'event: delta\ndata: {"content":"Ответ"}\n\n',
+            'event: done\ndata: {"finishReason":"stop","outputTokens":5,"inputTokens":120,"cachedInputTokens":40}\n\n',
+          ]),
+        ),
+    );
+
+    const agent = new Agent(config());
+    await agent.sendMessage('Вопрос');
+
+    const snapshot = agent.getSnapshot();
+    expect(snapshot.messages[1]).toMatchObject({
+      role: 'assistant',
+      outputTokens: 5,
+      contextTokens: 120,
+      cachedContextTokens: 40,
+    });
+  });
+
+  it('не добавляет поля контекстных токенов, если событие done их не содержит', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
+        ),
+    );
+
+    const agent = new Agent(config());
+    await agent.sendMessage('Вопрос');
+
+    const assistantMessage = agent.getSnapshot().messages[1];
+    expect(assistantMessage.contextTokens).toBeUndefined();
+    expect(assistantMessage.cachedContextTokens).toBeUndefined();
+    expect(assistantMessage.outputTokens).toBeUndefined();
+  });
+
   it('уведомляет подписчиков на каждое изменение состояния', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
+        ),
     );
 
     const agent = new Agent(config());
@@ -217,7 +395,9 @@ describe('Agent', () => {
               controllerRef?.error(
                 Object.assign(new Error('aborted'), { name: 'AbortError' }),
               );
-              reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+              reject(
+                Object.assign(new Error('aborted'), { name: 'AbortError' }),
+              );
             });
           }),
       ),
@@ -241,7 +421,10 @@ describe('Agent', () => {
   });
 
   it('переводит сетевую ошибку в сообщение об ошибке и удаляет пустой ответ', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new Error('network down')),
+    );
 
     const agent = new Agent(config());
     await agent.sendMessage('Привет');
@@ -258,7 +441,9 @@ describe('Agent', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         Response.json(
-          { error: { code: 'rate_limit', message: 'Слишком много запросов' } },
+          {
+            error: { code: 'rate_limit', message: 'Слишком много запросов' },
+          },
           { status: 429 },
         ),
       ),

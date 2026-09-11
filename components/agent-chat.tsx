@@ -5,12 +5,17 @@ import {
   ArrowUp,
   Bot,
   CircleAlert,
+  FileText,
+  ImageIcon,
+  Paperclip,
   Sparkles,
   Square,
   Trash2,
   UserRound,
+  X,
 } from 'lucide-react';
 import {
+  type ChangeEvent,
   type KeyboardEvent,
   type SyntheticEvent,
   useEffect,
@@ -20,6 +25,16 @@ import {
 
 import { MarkdownMessage } from '@/components/markdown-message';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+} from '@/components/ui/attachment';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,7 +48,18 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAgentSnapshot } from '@/hooks/use-agent';
 import type { Agent } from '@/lib/agent';
 import { formatModelLabel } from '@/lib/chat-constraints';
-import type { ChatOutputFormat } from '@/lib/chat-types';
+import type {
+  ChatAttachment,
+  ChatAttachmentKind,
+  ChatOutputFormat,
+} from '@/lib/chat-types';
+import {
+  ATTACHMENT_INPUT_ACCEPT,
+  classifyAttachment,
+  formatFileSize,
+  isVisionModel,
+  validateAttachmentFiles,
+} from '@/lib/file-attachments';
 
 const suggestions = [
   'Объясни сложную тему простыми словами',
@@ -47,6 +73,60 @@ type HighlightToken = {
   text: string;
   type?: ShjToken;
 };
+
+function AttachmentIcon({ kind }: { kind: ChatAttachmentKind }) {
+  return kind === 'image' ? <ImageIcon /> : <FileText />;
+}
+
+function SentAttachment({ attachment }: { attachment: ChatAttachment }) {
+  return (
+    <Attachment size="xs" className="sent-attachment">
+      <AttachmentMedia>
+        <AttachmentIcon kind={attachment.kind} />
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle>{attachment.name}</AttachmentTitle>
+        <AttachmentDescription>
+          {attachment.kind === 'image' ? 'изображение' : 'текст'} ·{' '}
+          {formatFileSize(attachment.size)}
+        </AttachmentDescription>
+      </AttachmentContent>
+    </Attachment>
+  );
+}
+
+function PendingAttachment({
+  file,
+  onRemove,
+}: {
+  file: File;
+  onRemove: () => void;
+}) {
+  const kind = classifyAttachment(file) ?? 'text';
+
+  return (
+    <Attachment size="xs" className="pending-attachment">
+      <AttachmentMedia>
+        <AttachmentIcon kind={kind} />
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle>{file.name}</AttachmentTitle>
+        <AttachmentDescription>
+          {formatFileSize(file.size)}
+        </AttachmentDescription>
+      </AttachmentContent>
+      <AttachmentActions>
+        <AttachmentAction
+          type="button"
+          aria-label={`Убрать файл «${file.name}»`}
+          onClick={onRemove}
+        >
+          <X />
+        </AttachmentAction>
+      </AttachmentActions>
+    </Attachment>
+  );
+}
 
 function StructuredMessage({
   content,
@@ -95,11 +175,50 @@ function StructuredMessage({
   );
 }
 
+// Composes the three token counts requested for each answer: the current
+// request (an approximate count of just the latest user message), the whole
+// input context (the exact input-token usage DeepSeek reports — the full
+// history, latest request, and system prompt it processed for this answer),
+// and the model's response (exact output tokens). Any missing piece is
+// simply omitted rather than shown as a placeholder.
+function formatTokenStats({
+  requestTokens,
+  contextTokens,
+  cachedContextTokens,
+  outputTokens,
+}: {
+  requestTokens: number | undefined;
+  contextTokens: number | undefined;
+  cachedContextTokens: number | undefined;
+  outputTokens: number | undefined;
+}): string | null {
+  const parts: string[] = [];
+
+  if (requestTokens !== undefined) {
+    parts.push(`запрос ~${requestTokens}`);
+  }
+  if (contextTokens !== undefined) {
+    parts.push(
+      cachedContextTokens
+        ? `контекст ${contextTokens} (кэш ${cachedContextTokens})`
+        : `контекст ${contextTokens}`,
+    );
+  }
+  if (outputTokens !== undefined) {
+    parts.push(`ответ ${outputTokens}`);
+  }
+
+  return parts.length ? `Токены: ${parts.join(' · ')}` : null;
+}
+
 export function AgentChat({ agent }: { agent: Agent }) {
   const { messages, isGenerating, error } = useAgentSnapshot(agent);
   const [input, setInput] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({
@@ -114,12 +233,52 @@ export function AgentChat({ agent }: { agent: Agent }) {
 
   const sendMessage = (rawContent?: string) => {
     const content = (rawContent ?? input).trim();
-    if (!content || isGenerating) return;
+    if ((!content && selectedFiles.length === 0) || isGenerating) return;
 
     setInput('');
-    void agent.sendMessage(content).finally(() => {
+    const files = selectedFiles;
+    setSelectedFiles([]);
+    setAttachmentError(null);
+    void agent.sendMessage(content, files).finally(() => {
       window.setTimeout(() => textareaRef.current?.focus(), 0);
     });
+  };
+
+  const handleFilesSelected = (event: ChangeEvent<HTMLInputElement>) => {
+    const pickedFiles = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = '';
+    if (!pickedFiles.length) return;
+
+    const knownFiles = new Set(
+      selectedFiles.map(
+        (file) => `${file.name}:${file.size}:${file.lastModified}`,
+      ),
+    );
+    const nextFiles = [
+      ...selectedFiles,
+      ...pickedFiles.filter(
+        (file) =>
+          !knownFiles.has(`${file.name}:${file.size}:${file.lastModified}`),
+      ),
+    ];
+    const validation = validateAttachmentFiles(nextFiles);
+
+    if (!validation.ok) {
+      setAttachmentError(validation.message);
+      return;
+    }
+    if (
+      nextFiles.some((file) => classifyAttachment(file) === 'image') &&
+      !isVisionModel(agent.config.model)
+    ) {
+      setAttachmentError(
+        'Для изображений нужен агент с моделью DeepSeek Flash.',
+      );
+      return;
+    }
+
+    setSelectedFiles(nextFiles);
+    setAttachmentError(null);
   };
 
   const handleSubmit = (event: SyntheticEvent<HTMLFormElement>) => {
@@ -134,14 +293,6 @@ export function AgentChat({ agent }: { agent: Agent }) {
     }
   };
 
-  const latestOutputTokens = [...messages]
-    .reverse()
-    .find(
-      (message) =>
-        message.role === 'assistant' &&
-        typeof message.outputTokens === 'number',
-    )?.outputTokens;
-
   return (
     <div className="chat-frame">
       <header className="chat-header">
@@ -155,7 +306,10 @@ export function AgentChat({ agent }: { agent: Agent }) {
             </h1>
             <p className="truncate text-xs text-white/40">
               Температура {agent.config.temperature} · формат{' '}
-              {agent.config.outputFormat.toUpperCase()}
+              {agent.config.outputFormat.toUpperCase()} · цель{' '}
+              {agent.config.targetOutputTokens === null
+                ? 'без ограничения'
+                : `${agent.config.targetOutputTokens} ток.`}
             </p>
           </div>
         </div>
@@ -213,8 +367,21 @@ export function AgentChat({ agent }: { agent: Agent }) {
           </div>
         ) : (
           <div className="messages-list">
-            {messages.map((message) => {
+            {messages.map((message, index) => {
               const isUser = message.role === 'user';
+              const precedingUserMessage =
+                !isUser && messages[index - 1]?.role === 'user'
+                  ? messages[index - 1]
+                  : undefined;
+              const tokenStats =
+                !isUser && message.status === 'complete'
+                  ? formatTokenStats({
+                      requestTokens: precedingUserMessage?.messageTokens,
+                      contextTokens: message.contextTokens,
+                      cachedContextTokens: message.cachedContextTokens,
+                      outputTokens: message.outputTokens,
+                    })
+                  : null;
 
               return (
                 <Message
@@ -260,6 +427,16 @@ export function AgentChat({ agent }: { agent: Agent }) {
                           <i />
                         </span>
                       )}
+                      {isUser && message.attachments?.length ? (
+                        <AttachmentGroup className="message-attachments">
+                          {message.attachments.map((attachment) => (
+                            <SentAttachment
+                              key={attachment.id}
+                              attachment={attachment}
+                            />
+                          ))}
+                        </AttachmentGroup>
+                      ) : null}
                     </div>
                     {!isUser && message.status === 'stopped' ? (
                       <MessageFooter className="message-status">
@@ -269,6 +446,11 @@ export function AgentChat({ agent }: { agent: Agent }) {
                     {!isUser && message.status === 'error' ? (
                       <MessageFooter className="message-status text-red-300/60">
                         Ответ прерван
+                      </MessageFooter>
+                    ) : null}
+                    {tokenStats ? (
+                      <MessageFooter className="message-tokens">
+                        {tokenStats}
                       </MessageFooter>
                     ) : null}
                   </MessageContent>
@@ -281,52 +463,100 @@ export function AgentChat({ agent }: { agent: Agent }) {
       </section>
 
       <footer className="composer-wrap">
-        {error ? (
+        {error || attachmentError ? (
           <Alert variant="destructive" className="error-alert">
             <CircleAlert />
-            <AlertTitle>Не удалось получить ответ</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+            <AlertTitle>
+              {attachmentError
+                ? 'Не удалось прикрепить файл'
+                : 'Не удалось получить ответ'}
+            </AlertTitle>
+            <AlertDescription>{attachmentError ?? error}</AlertDescription>
           </Alert>
         ) : null}
 
         <form className="composer" onSubmit={handleSubmit}>
-          <Textarea
-            ref={textareaRef}
-            aria-label="Сообщение агенту"
-            placeholder="Напишите сообщение…"
-            rows={1}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={handleKeyDown}
-            className="composer-input"
-          />
-          {isGenerating ? (
+          {selectedFiles.length ? (
+            <AttachmentGroup className="selected-attachments">
+              {selectedFiles.map((file) => {
+                const key = `${file.name}:${file.size}:${file.lastModified}`;
+                return (
+                  <PendingAttachment
+                    key={key}
+                    file={file}
+                    onRemove={() => {
+                      setSelectedFiles((current) =>
+                        current.filter(
+                          (item) =>
+                            `${item.name}:${item.size}:${item.lastModified}` !==
+                            key,
+                        ),
+                      );
+                      setAttachmentError(null);
+                    }}
+                  />
+                );
+              })}
+            </AttachmentGroup>
+          ) : null}
+          <div className="composer-row">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={ATTACHMENT_INPUT_ACCEPT}
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={handleFilesSelected}
+            />
             <Button
               type="button"
+              variant="ghost"
               size="icon-lg"
-              className="stop-button"
-              aria-label="Остановить генерацию"
-              onClick={() => agent.stop()}
+              className="attach-button"
+              aria-label="Прикрепить файлы"
+              disabled={isGenerating}
+              onClick={() => fileInputRef.current?.click()}
             >
-              <Square className="size-3.5 fill-current" />
+              <Paperclip className="size-[18px]" />
             </Button>
-          ) : (
-            <Button
-              type="submit"
-              size="icon-lg"
-              className="send-button"
-              aria-label="Отправить сообщение"
-              disabled={!input.trim()}
-            >
-              <ArrowUp className="size-[18px]" />
-            </Button>
-          )}
+            <Textarea
+              ref={textareaRef}
+              aria-label="Сообщение агенту"
+              placeholder="Напишите сообщение…"
+              rows={1}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={handleKeyDown}
+              className="composer-input"
+            />
+            {isGenerating ? (
+              <Button
+                type="button"
+                size="icon-lg"
+                className="stop-button"
+                aria-label="Остановить генерацию"
+                onClick={() => agent.stop()}
+              >
+                <Square className="size-3.5 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                size="icon-lg"
+                className="send-button"
+                aria-label="Отправить сообщение"
+                disabled={!input.trim() && selectedFiles.length === 0}
+              >
+                <ArrowUp className="size-[18px]" />
+              </Button>
+            )}
+          </div>
         </form>
         <p className="composer-hint">
-          Enter — отправить · Shift + Enter — новая строка
-          {typeof latestOutputTokens === 'number'
-            ? ` · последний ответ: ${latestOutputTokens} ток.`
-            : ''}
+          Enter — отправить · Shift + Enter — новая строка · до 5 файлов ·
+          вложения отправляются в DeepSeek
         </p>
       </footer>
 

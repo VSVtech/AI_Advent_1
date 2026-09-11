@@ -9,9 +9,9 @@ import {
 const originalApiKey = process.env.DEEPSEEK_API_KEY;
 
 function chatRequest(
-  messages: Array<{ role: string; content: string }>,
+  messages: Array<{ role: string; content: unknown }>,
   format?: string,
-  targetOutputTokens?: number,
+  targetOutputTokens?: number | null,
   options: {
     useSystemPrompt?: unknown;
     useSelectorSystemPrompt?: unknown;
@@ -157,6 +157,210 @@ describe('POST /api/chat', () => {
       instructions:
         'The complete answer must contain between 7000 and 9000 output tokens. For prose, use approximately 4800 words as an additional planning guide. Treat the token range as a required target, not merely an upper bound or a suggestion. The separate API token limit is only an emergency buffer for completing the answer and closing structured data; do not use that allowance as the target length. Plan the response length before writing and finish inside the target range. Develop relevant details, examples, edge cases, and explanations without repetition or filler. Do not cut off a sentence, list, code block, JSON object, XML document, or YAML document to meet the target.',
     });
+  });
+
+  it('передаёт мультимодальное сообщение с загруженным изображением', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          deepSeekStream([
+            'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+          ]),
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const messages = [
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'Что изображено?' },
+          { type: 'input_image', file_id: 'file-api-picture-1' },
+        ],
+      },
+    ];
+
+    const response = await POST(chatRequest(messages));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('event: done');
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string).input).toEqual(messages);
+  });
+
+  it('не принимает изображение для модели без поддержки vision', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest(
+        [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: 'Что изображено?' },
+              { type: 'input_image', file_id: 'file-api-picture-1' },
+            ],
+          },
+        ],
+        undefined,
+        undefined,
+        { model: 'deepseek-v4-pro' },
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'vision_model_required' },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('передаёт число входных токенов (включая кэшированные) из usage в событие done', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          deepSeekStream([
+            'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"Привет","sequence_number":1}\n\n',
+            'event: response.completed\ndata: {"type":"response.completed","sequence_number":2,"response":{"status":"completed","usage":{"output_tokens":2,"input_tokens":40,"input_tokens_details":{"cached_tokens":15}}}}\n\n',
+          ]),
+          { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Привет' }]),
+    );
+    const body = await response.text();
+
+    expect(body).toContain(
+      'event: done\ndata: {"finishReason":"stop","outputTokens":2,"inputTokens":40,"cachedInputTokens":15}',
+    );
+  });
+
+  it('не добавляет поля токенов в событие done, если usage их не содержит', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            deepSeekStream([
+              'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+            ]),
+            { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+          ),
+        ),
+    );
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Привет' }]),
+    );
+    const body = await response.text();
+
+    expect(body).toContain('event: done\ndata: {"finishReason":"stop"}');
+  });
+
+  it('передаёт число входных токенов из usage и для структурированных форматов', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        Response.json({
+          status: 'completed',
+          usage: {
+            output_tokens: 9,
+            input_tokens: 30,
+            input_tokens_details: { cached_tokens: 5 },
+          },
+          output: [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: '{"ok":true}' }],
+            },
+          ],
+        }),
+      ),
+    );
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Привет' }], 'json'),
+    );
+    const body = await response.text();
+
+    expect(body).toContain(
+      'event: done\ndata: {"finishReason":"stop","outputTokens":9,"inputTokens":30,"cachedInputTokens":5}',
+    );
+  });
+
+  it('отключённая целевая длина (null) снимает и максимум ответа, и инструкцию длины', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        deepSeekStream([
+          'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed","usage":{"output_tokens":1}}}\n\n',
+        ]),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Привет' }], undefined, null),
+    );
+
+    expect(response.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    if (typeof init.body !== 'string') throw new Error('Expected JSON body');
+    const payload = JSON.parse(init.body) as {
+      max_output_tokens: number;
+      instructions?: string;
+    };
+
+    expect(payload.max_output_tokens).toBe(100_000);
+    // The selector prompt for text with no target has nothing to say, so no
+    // instructions field is sent at all.
+    expect(payload.instructions).toBeUndefined();
+  });
+
+  it('отключённая целевая длина не мешает инструкциям формата (json)', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(deepSeekResponse('{"ok":true}')),
+    );
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Привет' }], 'json', null),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it('отклоняет некорректное значение целевой длины, но принимает null', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const invalidResponse = await POST(
+      chatRequest([{ role: 'user', content: 'Привет' }], undefined, 49),
+    );
+    expect(invalidResponse.status).toBe(400);
+    await expect(invalidResponse.json()).resolves.toMatchObject({
+      error: { code: 'invalid_target_output_tokens' },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([

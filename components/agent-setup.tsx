@@ -5,6 +5,7 @@ import { type SyntheticEvent, useState } from 'react';
 
 import { SystemPromptControl } from '@/components/system-prompt-control';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -53,6 +54,7 @@ export function AgentSetup({
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [outputFormat, setOutputFormat] = useState<ChatOutputFormat>('text');
   const [temperature, setTemperature] = useState(String(DEFAULT_TEMPERATURE));
+  const [hasTargetOutputTokens, setHasTargetOutputTokens] = useState(true);
   const [targetOutputTokens, setTargetOutputTokens] = useState(
     String(DEFAULT_TARGET_OUTPUT_TOKENS),
   );
@@ -68,23 +70,31 @@ export function AgentSetup({
   const parsedTemperature = temperature.trim() ? Number(temperature) : NaN;
   const hasInvalidTemperature = !isValidTemperature(parsedTemperature);
   const parsedTargetOutputTokens = Number(targetOutputTokens);
-  const hasInvalidTargetOutputTokens = !isValidTargetOutputTokens(
-    parsedTargetOutputTokens,
-  );
-  const generatedSystemPrompt = isValidTargetOutputTokens(
-    parsedTargetOutputTokens,
-  )
-    ? buildSelectorSystemPrompt(outputFormat, parsedTargetOutputTokens)
-    : '';
+  // Disabling the target length is always valid — the field's own value
+  // only matters (and is only validated) while it's enabled.
+  const hasInvalidTargetOutputTokens =
+    hasTargetOutputTokens &&
+    !isValidTargetOutputTokens(parsedTargetOutputTokens);
+  const resolvedTargetOutputTokens = hasTargetOutputTokens
+    ? parsedTargetOutputTokens
+    : null;
+  const generatedSystemPrompt =
+    resolvedTargetOutputTokens === null ||
+    isValidTargetOutputTokens(resolvedTargetOutputTokens)
+      ? buildSelectorSystemPrompt(outputFormat, resolvedTargetOutputTokens)
+      : '';
   const hasInvalidCustomSystemPrompt =
     useSystemPrompt &&
     !useSelectorSystemPrompt &&
     !isValidCustomSystemPrompt(customSystemPrompt);
-  const calculatedMaxOutputTokens = isValidTargetOutputTokens(
-    parsedTargetOutputTokens,
-  )
-    ? calculateMaxOutputTokens(parsedTargetOutputTokens)
-    : null;
+  // Disabling the target length also disables the derived max-output cap —
+  // the technical API ceiling applies instead (calculateMaxOutputTokens
+  // returns it for a null target).
+  const calculatedMaxOutputTokens =
+    resolvedTargetOutputTokens === null ||
+    isValidTargetOutputTokens(resolvedTargetOutputTokens)
+      ? calculateMaxOutputTokens(resolvedTargetOutputTokens)
+      : null;
 
   const canCreate =
     !hasInvalidTemperature &&
@@ -100,7 +110,7 @@ export function AgentSetup({
         model: selectedModel,
         temperature: parsedTemperature,
         outputFormat,
-        targetOutputTokens: parsedTargetOutputTokens,
+        targetOutputTokens: resolvedTargetOutputTokens,
         useSystemPrompt,
         useSelectorSystemPrompt,
         customSystemPrompt,
@@ -226,9 +236,24 @@ export function AgentSetup({
           </div>
 
           <div className="agent-setup-field">
-            <label className="format-label" htmlFor="agent-target-tokens">
-              Целевая длина ответа
-            </label>
+            <div className="agent-setup-field-heading">
+              <label className="format-label" htmlFor="agent-target-tokens">
+                Целевая длина ответа
+              </label>
+              <label
+                className="agent-setup-checkbox-label"
+                htmlFor="agent-target-tokens-disabled"
+              >
+                <Checkbox
+                  id="agent-target-tokens-disabled"
+                  checked={!hasTargetOutputTokens}
+                  onCheckedChange={(checked) =>
+                    setHasTargetOutputTokens(!checked)
+                  }
+                />
+                Без ограничения
+              </label>
+            </div>
             <Input
               id="agent-target-tokens"
               type="number"
@@ -237,12 +262,15 @@ export function AgentSetup({
               max={MAX_TARGET_OUTPUT_TOKENS}
               step={50}
               value={targetOutputTokens}
+              disabled={!hasTargetOutputTokens}
               aria-invalid={hasInvalidTargetOutputTokens || undefined}
               className="agent-setup-input"
               onChange={(event) => setTargetOutputTokens(event.target.value)}
             />
             <p className="system-prompt-hint">
-              Максимум токенов на ответ: {calculatedMaxOutputTokens ?? '—'}
+              {hasTargetOutputTokens
+                ? `Максимум токенов на ответ: ${calculatedMaxOutputTokens ?? '—'}`
+                : `Длина не ограничивается; технический предел API — ${calculatedMaxOutputTokens} токенов.`}
             </p>
           </div>
         </div>
@@ -255,7 +283,7 @@ export function AgentSetup({
         {hasInvalidTargetOutputTokens ? (
           <p role="alert" className="system-prompt-error">
             Укажите целевую длину от {MIN_TARGET_OUTPUT_TOKENS} до{' '}
-            {MAX_TARGET_OUTPUT_TOKENS} токенов.
+            {MAX_TARGET_OUTPUT_TOKENS} токенов, либо отметьте «Без ограничения».
           </p>
         ) : null}
 

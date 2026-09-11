@@ -26,6 +26,25 @@ function agentState(
         role: 'user',
         content: 'Привет',
         status: 'complete',
+        messageTokens: 2,
+        attachments: [
+          {
+            id: 'attachment-1',
+            kind: 'text',
+            name: 'notes.txt',
+            mediaType: 'text/plain',
+            size: 12,
+            text: 'Важная заметка',
+          },
+          {
+            id: 'attachment-2',
+            kind: 'image',
+            name: 'diagram.png',
+            mediaType: 'image/png',
+            size: 1024,
+            fileId: 'file-api-image-1',
+          },
+        ],
       },
       {
         id: 'message-2',
@@ -33,6 +52,8 @@ function agentState(
         content: 'Здравствуйте!',
         status: 'complete',
         format: 'text',
+        contextTokens: 24,
+        cachedContextTokens: 8,
         outputTokens: 4,
       },
     ],
@@ -94,6 +115,64 @@ describe('долговременное хранение сессий агент�
       content: 'Частичный ответ',
       status: 'stopped',
     });
+  });
+
+  it('восстанавливает агента с отключённым ограничением длины', () => {
+    const state = agentState({
+      config: {
+        ...createDefaultAgentConfig(),
+        targetOutputTokens: null,
+      },
+    });
+
+    const restored = deserializeAgentSessions(
+      JSON.stringify({ version: 1, agents: [state], activeAgentId: state.id }),
+    );
+
+    expect(restored.agents).toHaveLength(1);
+    expect(restored.agents[0].config.targetOutputTokens).toBeNull();
+  });
+
+  it('игнорирует повреждённые значения счётчиков токенов', () => {
+    const state = agentState({
+      messages: [
+        {
+          id: 'message-1',
+          role: 'user',
+          content: 'Привет',
+          status: 'complete',
+          messageTokens: -1,
+        },
+        {
+          id: 'message-2',
+          role: 'assistant',
+          content: 'Здравствуйте!',
+          status: 'complete',
+          contextTokens: Number.NaN,
+          cachedContextTokens: 1.5,
+          outputTokens: -4,
+        },
+      ],
+    });
+
+    const restored = deserializeAgentSessions(
+      JSON.stringify({ version: 1, agents: [state], activeAgentId: state.id }),
+    );
+
+    expect(restored.agents[0].getSnapshot().messages).toEqual([
+      {
+        id: 'message-1',
+        role: 'user',
+        content: 'Привет',
+        status: 'complete',
+      },
+      {
+        id: 'message-2',
+        role: 'assistant',
+        content: 'Здравствуйте!',
+        status: 'complete',
+      },
+    ]);
   });
 
   it('игнорирует повреждённые данные, неизвестную версию и дубликаты id', () => {

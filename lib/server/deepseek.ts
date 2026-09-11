@@ -1,11 +1,14 @@
 import { DEFAULT_MODEL } from '@/lib/chat-constraints';
 import type {
+  ApiChatContentPart,
   ApiChatMessage,
   ChatErrorPayload,
   ChatStreamEvent,
 } from '@/lib/chat-types';
+import { isDeepSeekFileId } from '@/lib/file-attachments';
 
 export const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/responses';
+export const DEEPSEEK_FILES_ENDPOINT = 'https://api.deepseek.com/files';
 export const DEEPSEEK_MODELS_ENDPOINT = 'https://api.deepseek.com/models';
 // Kept as an alias so existing imports keep working; the canonical value
 // lives in chat-constraints.ts so client code can use it without importing
@@ -54,14 +57,37 @@ export function jsonError(
   });
 }
 
+function isChatContentPart(value: unknown): value is ApiChatContentPart {
+  if (!value || typeof value !== 'object') return false;
+  const part = value as Record<string, unknown>;
+
+  if (part.type === 'input_text') {
+    return (
+      typeof part.text === 'string' &&
+      part.text.trim().length > 0 &&
+      part.text.length <= 1_000_000
+    );
+  }
+
+  return part.type === 'input_image' && isDeepSeekFileId(part.file_id);
+}
+
 export function isChatMessage(value: unknown): value is ApiChatMessage {
   if (!value || typeof value !== 'object') return false;
   const message = value as Record<string, unknown>;
 
+  if (message.role !== 'user' && message.role !== 'assistant') return false;
+
+  if (typeof message.content === 'string') {
+    return message.content.trim().length > 0;
+  }
+
   return (
-    (message.role === 'user' || message.role === 'assistant') &&
-    typeof message.content === 'string' &&
-    message.content.trim().length > 0
+    message.role === 'user' &&
+    Array.isArray(message.content) &&
+    message.content.length > 0 &&
+    message.content.length <= 16 &&
+    message.content.every(isChatContentPart)
   );
 }
 
@@ -114,7 +140,11 @@ export function createNormalizedStream(
           delta?: unknown;
           response?: {
             incomplete_details?: { reason?: unknown } | null;
-            usage?: { output_tokens?: unknown } | null;
+            usage?: {
+              output_tokens?: unknown;
+              input_tokens?: unknown;
+              input_tokens_details?: { cached_tokens?: unknown } | null;
+            } | null;
           };
         };
         const eventType = payload.type ?? eventName;
@@ -129,15 +159,18 @@ export function createNormalizedStream(
         }
 
         if (eventType === 'response.completed') {
-          const outputTokens = payload.response?.usage?.output_tokens;
+          const outputTokens = extractOutputTokens({
+            usage: payload.response?.usage,
+          });
+          const { inputTokens, cachedInputTokens } = extractInputTokenUsage({
+            usage: payload.response?.usage,
+          });
           emit({
             type: 'done',
             finishReason: 'stop',
-            ...(typeof outputTokens === 'number' &&
-            Number.isInteger(outputTokens) &&
-            outputTokens >= 0
-              ? { outputTokens }
-              : {}),
+            ...(outputTokens === null ? {} : { outputTokens }),
+            ...(inputTokens === null ? {} : { inputTokens }),
+            ...(cachedInputTokens === null ? {} : { cachedInputTokens }),
           });
           close();
           return;
@@ -240,7 +273,11 @@ export function eventStreamResponse(
 
 export function completedOutputResponse(
   content: string,
-  outputTokens: number | null,
+  usage: {
+    outputTokens: number | null;
+    inputTokens?: number | null;
+    cachedInputTokens?: number | null;
+  },
 ): Response {
   return eventStreamResponse(
     new ReadableStream<Uint8Array>({
@@ -250,7 +287,16 @@ export function completedOutputResponse(
           encodeEvent({
             type: 'done',
             finishReason: 'stop',
-            ...(outputTokens === null ? {} : { outputTokens }),
+            ...(usage.outputTokens === null
+              ? {}
+              : { outputTokens: usage.outputTokens }),
+            ...(usage.inputTokens === null || usage.inputTokens === undefined
+              ? {}
+              : { inputTokens: usage.inputTokens }),
+            ...(usage.cachedInputTokens === null ||
+            usage.cachedInputTokens === undefined
+              ? {}
+              : { cachedInputTokens: usage.cachedInputTokens }),
           }),
         );
         controller.close();

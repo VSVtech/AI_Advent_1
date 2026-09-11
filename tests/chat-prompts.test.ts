@@ -27,6 +27,24 @@ describe('системный промпт', () => {
     );
   });
 
+  it('при отключённой целевой длине не добавляет инструкцию длины (text)', () => {
+    expect(buildSelectorSystemPrompt('text', null)).toBe('');
+  });
+
+  it.each<[ChatOutputFormat, string]>([
+    ['json', 'Return only valid json.'],
+    ['xml', 'Return only well-formed XML'],
+    ['yaml', 'Return only valid YAML'],
+  ])(
+    'при отключённой целевой длине оставляет только инструкции формата (%s)',
+    (format, expectedStart) => {
+      const prompt = buildSelectorSystemPrompt(format, null);
+
+      expect(prompt.startsWith(expectedStart)).toBe(true);
+      expect(prompt).not.toContain('output tokens');
+    },
+  );
+
   it('принимает непустой текст вплоть до лимита символов', () => {
     expect(isValidCustomSystemPrompt('Отвечай кратко.')).toBe(true);
     expect(isValidCustomSystemPrompt('  Промпт\nс новой строкой.  ')).toBe(

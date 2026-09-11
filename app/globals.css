@@ -236,12 +236,43 @@ body {
     @apply max-w-[min(84%,640px)] rounded-[18px] rounded-tr-md border border-white/7 bg-white/[0.055] px-4 py-2.5 text-white/80 shadow-sm shadow-black/10;
   }
 
+  .message-attachments {
+    @apply mt-2 max-w-full gap-2 py-0;
+  }
+
+  .sent-attachment,
+  .pending-attachment {
+    @apply border-white/8 bg-black/15 text-white/70;
+  }
+
+  .sent-attachment {
+    @apply min-w-44 max-w-64;
+  }
+
+  .pending-attachment {
+    @apply min-w-44 max-w-72 border-emerald-200/12 bg-emerald-300/[0.035];
+  }
+
+  .sent-attachment [data-slot='attachment-media'],
+  .pending-attachment [data-slot='attachment-media'] {
+    @apply bg-white/[0.045] text-emerald-200/70;
+  }
+
+  .sent-attachment [data-slot='attachment-description'],
+  .pending-attachment [data-slot='attachment-description'] {
+    @apply text-white/35;
+  }
+
   .assistant-message {
     @apply min-h-7 w-full min-w-0 text-white/78;
   }
 
   .message-status {
     @apply px-0 text-[11px] font-normal text-white/28;
+  }
+
+  .message-tokens {
+    @apply px-0 font-mono text-[11px] font-normal tracking-tight text-white/25;
   }
 
   .typing-indicator {
@@ -439,7 +470,15 @@ body {
   }
 
   .composer {
-    @apply mx-auto flex max-w-3xl items-end gap-2 rounded-[20px] border border-white/9 bg-white/[0.045] p-2 shadow-lg shadow-black/15 transition focus-within:border-emerald-300/25 focus-within:bg-white/[0.055];
+    @apply mx-auto flex max-w-3xl flex-col gap-1 rounded-[20px] border border-white/9 bg-white/[0.045] p-2 shadow-lg shadow-black/15 transition focus-within:border-emerald-300/25 focus-within:bg-white/[0.055];
+  }
+
+  .composer-row {
+    @apply flex w-full items-end gap-1;
+  }
+
+  .selected-attachments {
+    @apply w-full gap-2 px-1 py-1;
   }
 
   .composer-input {
@@ -448,6 +487,10 @@ body {
 
   .send-button {
     @apply size-10 rounded-[14px] bg-emerald-300 text-[#10201e] shadow-[0_8px_24px_rgb(83_218_190/14%)] hover:bg-emerald-200;
+  }
+
+  .attach-button {
+    @apply size-10 shrink-0 rounded-[14px] text-white/35 hover:bg-white/[0.055] hover:text-emerald-200 disabled:text-white/15;
   }
 
   .stop-button {
@@ -535,6 +578,14 @@ body {
 
   .agent-setup-field {
     @apply flex min-w-0 flex-col gap-1;
+  }
+
+  .agent-setup-field-heading {
+    @apply flex flex-wrap items-center justify-between gap-x-3 gap-y-1;
+  }
+
+  .agent-setup-checkbox-label {
+    @apply flex cursor-pointer items-center gap-1.5 text-[11px] leading-4 whitespace-nowrap text-white/50;
   }
 
   .agent-setup-input {

@@ -43,6 +43,14 @@ export function formatModelLabel(id: string): string {
     .join(' ');
 }
 
+// Грубая локальная оценка числа токенов до получения usage от DeepSeek.
+// Приближение "~4 символа на токен" годится для порядка величины, но не для
+// точного биллинга; источником точных значений остаётся ответ API.
+export function estimateTokenCount(text: string): number {
+  const trimmed = text.trim();
+  return trimmed ? Math.max(1, Math.ceil(trimmed.length / 4)) : 0;
+}
+
 export function isValidTargetOutputTokens(value: unknown): value is number {
   return (
     typeof value === 'number' &&
@@ -52,7 +60,22 @@ export function isValidTargetOutputTokens(value: unknown): value is number {
   );
 }
 
-export function calculateMaxOutputTokens(targetOutputTokens: number): number {
+// `null` means "target length disabled" — a legitimate, explicit choice,
+// distinct from an unset/invalid value.
+export function isValidTargetOutputTokensOrNull(
+  value: unknown,
+): value is number | null {
+  return value === null || isValidTargetOutputTokens(value);
+}
+
+// Disabling the target length also disables the derived max-output cap:
+// with no target to build a headroom around, the only limit left is the
+// API's own technical ceiling.
+export function calculateMaxOutputTokens(
+  targetOutputTokens: number | null,
+): number {
+  if (targetOutputTokens === null) return MAX_MAX_OUTPUT_TOKENS;
+
   const proportionalHeadroom = Math.ceil(targetOutputTokens * 0.2);
   const headroom = Math.min(
     MAX_OUTPUT_TOKEN_HEADROOM,

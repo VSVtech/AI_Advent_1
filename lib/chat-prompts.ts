@@ -53,14 +53,22 @@ const FORMAT_INSTRUCTIONS: Record<Exclude<ChatOutputFormat, 'text'>, string> = {
   ].join(' '),
 };
 
-// Shared by the editor preview and the server so both show/use the same prompt.
+// Shared by the editor preview and the server so both show/use the same
+// prompt. `targetOutputTokens: null` means the target length is disabled —
+// the length instruction is dropped entirely, leaving only the format
+// instructions (for json/xml/yaml) or an empty prompt (for text).
 export function buildSelectorSystemPrompt(
   format: ChatOutputFormat,
-  targetOutputTokens: number,
+  targetOutputTokens: number | null,
 ): string {
-  const lengthInstruction = targetLengthInstruction(targetOutputTokens);
+  const lengthInstruction =
+    targetOutputTokens === null
+      ? null
+      : targetLengthInstruction(targetOutputTokens);
 
-  return format === 'text'
-    ? lengthInstruction
-    : `${FORMAT_INSTRUCTIONS[format]} ${lengthInstruction}`;
+  if (format === 'text') return lengthInstruction ?? '';
+
+  return lengthInstruction
+    ? `${FORMAT_INSTRUCTIONS[format]} ${lengthInstruction}`
+    : FORMAT_INSTRUCTIONS[format];
 }

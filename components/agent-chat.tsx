@@ -184,11 +184,13 @@ function StructuredMessage({
 function formatTokenStats({
   requestTokens,
   contextTokens,
+  contextWindowTokens,
   cachedContextTokens,
   outputTokens,
 }: {
   requestTokens: number | undefined;
   contextTokens: number | undefined;
+  contextWindowTokens: number;
   cachedContextTokens: number | undefined;
   outputTokens: number | undefined;
 }): string | null {
@@ -198,10 +200,14 @@ function formatTokenStats({
     parts.push(`запрос ~${requestTokens}`);
   }
   if (contextTokens !== undefined) {
+    const usagePercent = (contextTokens / contextWindowTokens) * 100;
+    const usageLabel =
+      usagePercent < 1 ? '<1%' : `${Math.round(usagePercent)}%`;
+    const contextLabel = `контекст ${contextTokens}/${contextWindowTokens} (${usageLabel})`;
     parts.push(
       cachedContextTokens
-        ? `контекст ${contextTokens} (кэш ${cachedContextTokens})`
-        : `контекст ${contextTokens}`,
+        ? `${contextLabel}, кэш ${cachedContextTokens}`
+        : contextLabel,
     );
   }
   if (outputTokens !== undefined) {
@@ -309,7 +315,8 @@ export function AgentChat({ agent }: { agent: Agent }) {
               {agent.config.outputFormat.toUpperCase()} · цель{' '}
               {agent.config.targetOutputTokens === null
                 ? 'без ограничения'
-                : `${agent.config.targetOutputTokens} ток.`}
+                : `${agent.config.targetOutputTokens} ток.`}{' '}
+              · окно {agent.config.contextWindowTokens} ток.
             </p>
           </div>
         </div>
@@ -378,6 +385,7 @@ export function AgentChat({ agent }: { agent: Agent }) {
                   ? formatTokenStats({
                       requestTokens: precedingUserMessage?.messageTokens,
                       contextTokens: message.contextTokens,
+                      contextWindowTokens: agent.config.contextWindowTokens,
                       cachedContextTokens: message.cachedContextTokens,
                       outputTokens: message.outputTokens,
                     })

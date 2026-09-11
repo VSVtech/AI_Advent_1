@@ -18,14 +18,18 @@ import { useAvailableModels } from '@/hooks/use-available-models';
 import type { AgentConfig } from '@/lib/agent';
 import {
   calculateMaxOutputTokens,
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
   DEFAULT_MODEL,
   DEFAULT_TARGET_OUTPUT_TOKENS,
   DEFAULT_TEMPERATURE,
   formatModelLabel,
+  isValidContextWindowTokens,
   isValidTargetOutputTokens,
   isValidTemperature,
+  MAX_CONTEXT_WINDOW_TOKENS,
   MAX_TARGET_OUTPUT_TOKENS,
   MAX_TEMPERATURE,
+  MIN_CONTEXT_WINDOW_TOKENS,
   MIN_TARGET_OUTPUT_TOKENS,
   MIN_TEMPERATURE,
 } from '@/lib/chat-constraints';
@@ -58,6 +62,9 @@ export function AgentSetup({
   const [targetOutputTokens, setTargetOutputTokens] = useState(
     String(DEFAULT_TARGET_OUTPUT_TOKENS),
   );
+  const [contextWindowTokens, setContextWindowTokens] = useState(
+    String(DEFAULT_CONTEXT_WINDOW_TOKENS),
+  );
   const [useSystemPrompt, setUseSystemPrompt] = useState(true);
   const [useSelectorSystemPrompt, setUseSelectorSystemPrompt] = useState(true);
   const [customSystemPrompt, setCustomSystemPrompt] = useState<string | null>(
@@ -70,6 +77,10 @@ export function AgentSetup({
   const parsedTemperature = temperature.trim() ? Number(temperature) : NaN;
   const hasInvalidTemperature = !isValidTemperature(parsedTemperature);
   const parsedTargetOutputTokens = Number(targetOutputTokens);
+  const parsedContextWindowTokens = Number(contextWindowTokens);
+  const hasInvalidContextWindowTokens = !isValidContextWindowTokens(
+    parsedContextWindowTokens,
+  );
   // Disabling the target length is always valid — the field's own value
   // only matters (and is only validated) while it's enabled.
   const hasInvalidTargetOutputTokens =
@@ -98,6 +109,7 @@ export function AgentSetup({
 
   const canCreate =
     !hasInvalidTemperature &&
+    !hasInvalidContextWindowTokens &&
     !hasInvalidTargetOutputTokens &&
     !hasInvalidCustomSystemPrompt;
 
@@ -110,6 +122,7 @@ export function AgentSetup({
         model: selectedModel,
         temperature: parsedTemperature,
         outputFormat,
+        contextWindowTokens: parsedContextWindowTokens,
         targetOutputTokens: resolvedTargetOutputTokens,
         useSystemPrompt,
         useSelectorSystemPrompt,
@@ -273,6 +286,29 @@ export function AgentSetup({
                 : `Длина не ограничивается; технический предел API — ${calculatedMaxOutputTokens} токенов.`}
             </p>
           </div>
+
+          <div className="agent-setup-field sm:col-span-2 lg:col-span-4">
+            <label className="format-label" htmlFor="agent-context-window">
+              Лимит контекстного окна
+            </label>
+            <Input
+              id="agent-context-window"
+              type="number"
+              inputMode="numeric"
+              min={MIN_CONTEXT_WINDOW_TOKENS}
+              max={MAX_CONTEXT_WINDOW_TOKENS}
+              step={100}
+              value={contextWindowTokens}
+              aria-describedby="agent-context-window-hint"
+              aria-invalid={hasInvalidContextWindowTokens || undefined}
+              className="agent-setup-input max-w-sm"
+              onChange={(event) => setContextWindowTokens(event.target.value)}
+            />
+            <p id="agent-context-window-hint" className="system-prompt-hint">
+              Реальный предел — {MAX_CONTEXT_WINDOW_TOKENS} токенов. Для теста
+              переполнения установите, например, 2000.
+            </p>
+          </div>
         </div>
 
         {hasInvalidTemperature ? (
@@ -284,6 +320,12 @@ export function AgentSetup({
           <p role="alert" className="system-prompt-error">
             Укажите целевую длину от {MIN_TARGET_OUTPUT_TOKENS} до{' '}
             {MAX_TARGET_OUTPUT_TOKENS} токенов, либо отметьте «Без ограничения».
+          </p>
+        ) : null}
+        {hasInvalidContextWindowTokens ? (
+          <p role="alert" className="system-prompt-error">
+            Укажите лимит контекста от {MIN_CONTEXT_WINDOW_TOKENS} до{' '}
+            {MAX_CONTEXT_WINDOW_TOKENS} токенов.
           </p>
         ) : null}
 

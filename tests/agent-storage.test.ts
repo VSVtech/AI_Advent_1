@@ -133,6 +133,29 @@ describe('долговременное хранение сессий агент�
     expect(restored.agents[0].config.targetOutputTokens).toBeNull();
   });
 
+  it('восстанавливает искусственный лимит контекста и мигрирует старые сессии', () => {
+    const limitedState = agentState({
+      config: {
+        ...createDefaultAgentConfig(),
+        contextWindowTokens: 2000,
+      },
+    });
+    const legacyState = agentState({ id: 'legacy-agent' });
+    const legacyConfig = { ...legacyState.config } as Record<string, unknown>;
+    delete legacyConfig.contextWindowTokens;
+
+    const restored = deserializeAgentSessions(
+      JSON.stringify({
+        version: 1,
+        agents: [limitedState, { ...legacyState, config: legacyConfig }],
+        activeAgentId: limitedState.id,
+      }),
+    );
+
+    expect(restored.agents[0].config.contextWindowTokens).toBe(2000);
+    expect(restored.agents[1].config.contextWindowTokens).toBe(1_000_000);
+  });
+
   it('игнорирует повреждённые значения счётчиков токенов', () => {
     const state = agentState({
       messages: [

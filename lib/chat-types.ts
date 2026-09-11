@@ -50,6 +50,9 @@ export interface ApiChatMessage {
 export interface ChatRequest {
   messages: ApiChatMessage[];
   format?: ChatOutputFormat;
+  // Artificial input-context window used to reproduce overflow with models
+  // whose real context window is impractically large for a demo.
+  contextWindowTokens?: number;
   // `null` explicitly disables the target length (and, with it, the
   // derived max-output cap); `undefined` falls back to the default target.
   targetOutputTokens?: number | null;

@@ -5,12 +5,17 @@ import type {
 } from '@/lib/chat-types';
 import {
   calculateMaxOutputTokens,
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
   DEFAULT_TARGET_OUTPUT_TOKENS,
   DEFAULT_TEMPERATURE,
+  estimateContextTokenCount,
+  isValidContextWindowTokens,
   isValidModel,
   isValidTargetOutputTokensOrNull,
   isValidTemperature,
   MAX_TEMPERATURE,
+  MAX_CONTEXT_WINDOW_TOKENS,
+  MIN_CONTEXT_WINDOW_TOKENS,
   MIN_TEMPERATURE,
 } from '@/lib/chat-constraints';
 import {
@@ -48,8 +53,31 @@ function isChatOutputFormat(value: unknown): value is ChatOutputFormat {
   );
 }
 
+function contextWindowError({
+  contextWindowTokens,
+  messages,
+  systemPrompt,
+}: {
+  contextWindowTokens: number;
+  messages: ApiChatMessage[];
+  systemPrompt: string | null;
+}): Response | null {
+  const estimatedInputTokens = estimateContextTokenCount(
+    messages,
+    systemPrompt,
+  );
+
+  if (estimatedInputTokens <= contextWindowTokens) return null;
+
+  return jsonError(413, {
+    code: 'context_window_exceeded',
+    message: `Контекст переполнен: история и текущий запрос занимают примерно ${estimatedInputTokens} токенов, а лимит агента — ${contextWindowTokens}. Увеличьте лимит или сократите историю.`,
+  });
+}
+
 async function generateStructuredOutput({
   apiKey,
+  contextWindowTokens,
   format,
   maxOutputTokens,
   messages,
@@ -59,6 +87,7 @@ async function generateStructuredOutput({
   temperature,
 }: {
   apiKey: string;
+  contextWindowTokens: number;
   format: StructuredOutputFormat;
   maxOutputTokens: number;
   messages: ApiChatMessage[];
@@ -79,6 +108,22 @@ async function generateStructuredOutput({
       attempt === 0
         ? ''
         : ` A previous attempt did not pass server-side ${format.toUpperCase()} validation. Regenerate the complete answer and strictly follow the required format.`;
+    const requestMessages =
+      systemPrompt === null && retryInstruction
+        ? [
+            ...messages,
+            { role: 'user' as const, content: retryInstruction.trim() },
+          ]
+        : messages;
+    const requestSystemPrompt =
+      systemPrompt === null ? null : `${systemPrompt}${retryInstruction}`;
+    const overflowResponse = contextWindowError({
+      contextWindowTokens,
+      messages: requestMessages,
+      systemPrompt: requestSystemPrompt,
+    });
+
+    if (overflowResponse) return overflowResponse;
 
     let upstreamResponse: Response;
 
@@ -93,21 +138,15 @@ async function generateStructuredOutput({
           model,
           // Format repair must not re-enable a disabled system prompt.
           // Only the current retry gets this user instruction; history is unchanged.
-          input:
-            systemPrompt === null && retryInstruction
-              ? [
-                  ...messages,
-                  { role: 'user', content: retryInstruction.trim() },
-                ]
-              : messages,
+          input: requestMessages,
           max_output_tokens: maxOutputTokens,
           temperature,
           stream: false,
           reasoning: { effort: 'none' },
           text: { format: textFormat },
-          ...(systemPrompt === null
+          ...(requestSystemPrompt === null
             ? {}
-            : { instructions: `${systemPrompt}${retryInstruction}` }),
+            : { instructions: requestSystemPrompt }),
         }),
         cache: 'no-store',
         signal,
@@ -212,6 +251,18 @@ export async function POST(request: Request): Promise<Response> {
 
   const maxOutputTokens = calculateMaxOutputTokens(targetOutputTokens);
 
+  const contextWindowTokens =
+    body.contextWindowTokens === undefined
+      ? DEFAULT_CONTEXT_WINDOW_TOKENS
+      : body.contextWindowTokens;
+
+  if (!isValidContextWindowTokens(contextWindowTokens)) {
+    return jsonError(400, {
+      code: 'invalid_context_window_tokens',
+      message: `Укажите лимит контекста от ${MIN_CONTEXT_WINDOW_TOKENS} до ${MAX_CONTEXT_WINDOW_TOKENS} токенов.`,
+    });
+  }
+
   const temperature =
     body.temperature === undefined ? DEFAULT_TEMPERATURE : body.temperature;
 
@@ -272,6 +323,14 @@ export async function POST(request: Request): Promise<Response> {
     systemPrompt = buildSelectorSystemPrompt(outputFormat, targetOutputTokens);
   }
 
+  const overflowResponse = contextWindowError({
+    contextWindowTokens,
+    messages: body.messages,
+    systemPrompt,
+  });
+
+  if (overflowResponse) return overflowResponse;
+
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
 
   if (!apiKey) {
@@ -284,6 +343,7 @@ export async function POST(request: Request): Promise<Response> {
   if (isStructuredOutputFormat(outputFormat)) {
     return generateStructuredOutput({
       apiKey,
+      contextWindowTokens,
       format: outputFormat,
       maxOutputTokens,
       messages: body.messages,

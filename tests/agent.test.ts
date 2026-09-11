@@ -62,6 +62,7 @@ describe('Agent', () => {
         model: 'deepseek-v4-pro',
         temperature: 0.4,
         outputFormat: 'json',
+        contextWindowTokens: 2000,
         targetOutputTokens: 300,
         useSystemPrompt: false,
       }),
@@ -76,6 +77,7 @@ describe('Agent', () => {
     expect(body).toEqual({
       messages: [{ role: 'user', content: 'Привет' }],
       format: 'json',
+      contextWindowTokens: 2000,
       targetOutputTokens: 300,
       temperature: 0.4,
       model: 'deepseek-v4-pro',
@@ -253,8 +255,8 @@ describe('Agent', () => {
     expect(snapshot.messages[0]).toMatchObject({
       role: 'user',
       content: 'Привет',
-      // "Привет" — 6 символов, оценка ~4 символа/токен, округление вверх.
-      messageTokens: 2,
+      // "Привет" — 12 UTF-8-байт, оценка ~4 байта/токен.
+      messageTokens: 3,
     });
     expect(snapshot.messages[1]).toMatchObject({
       role: 'assistant',
@@ -289,6 +291,72 @@ describe('Agent', () => {
       contextTokens: 120,
       cachedContextTokens: 40,
     });
+  });
+
+  it('предупреждает о переполнении по точному usage и блокирует следующий запрос', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          'event: delta\ndata: {"content":"Ответ"}\n\n',
+          'event: done\ndata: {"finishReason":"stop","outputTokens":5,"inputTokens":120}\n\n',
+        ]),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const agent = new Agent(config({ contextWindowTokens: 100 }));
+    await agent.sendMessage('Первый запрос');
+
+    expect(agent.getSnapshot().messages[1]).toMatchObject({
+      role: 'assistant',
+      status: 'complete',
+      contextTokens: 120,
+    });
+    expect(agent.getSnapshot().error).toContain(
+      'следующий запрос будет заблокирован',
+    );
+
+    await agent.sendMessage('Продолжи');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(agent.getSnapshot().error).toContain('Новый запрос не отправлен');
+    expect(agent.getSnapshot().messages).toHaveLength(2);
+  });
+
+  it('блокирует запрос после восстановления переполненной истории', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const agent = new Agent(
+      config({ contextWindowTokens: 50_000 }),
+      undefined,
+      {
+        id: 'persisted-agent',
+        createdAt: 1,
+        messages: [
+          {
+            id: 'user-1',
+            role: 'user',
+            content: 'Длинный диалог',
+            status: 'complete',
+          },
+          {
+            id: 'assistant-1',
+            role: 'assistant',
+            content: 'Ответ',
+            status: 'complete',
+            contextTokens: 52_284,
+          },
+        ],
+      },
+    );
+
+    await agent.sendMessage('Продолжи');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(agent.getSnapshot().error).toContain('52 284');
+    expect(agent.getSnapshot().error).toContain('Новый запрос не отправлен');
+    expect(agent.getSnapshot().messages).toHaveLength(2);
   });
 
   it('не добавляет поля контекстных токенов, если событие done их не содержит', async () => {

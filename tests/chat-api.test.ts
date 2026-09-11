@@ -16,6 +16,7 @@ function chatRequest(
     useSystemPrompt?: unknown;
     useSelectorSystemPrompt?: unknown;
     customSystemPrompt?: unknown;
+    contextWindowTokens?: unknown;
     temperature?: unknown;
     model?: unknown;
   } = {},
@@ -104,6 +105,57 @@ describe('POST /api/chat', () => {
       },
     });
   });
+
+  it('искусственно воспроизводит переполнение контекстного окна до вызова DeepSeek', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest(
+        [
+          { role: 'user', content: 'x'.repeat(1000) },
+          { role: 'assistant', content: 'y'.repeat(1000) },
+          { role: 'user', content: 'Продолжи' },
+        ],
+        'text',
+        50,
+        {
+          contextWindowTokens: 500,
+          useSystemPrompt: false,
+        },
+      ),
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: 'context_window_exceeded',
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([99, 1_000_001, 100.5, null, '2000'])(
+    'отклоняет некорректный лимит контекста %j',
+    async (contextWindowTokens) => {
+      process.env.DEEPSEEK_API_KEY = 'test-secret';
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await POST(
+        chatRequest([{ role: 'user', content: 'Привет' }], 'text', 50, {
+          contextWindowTokens,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'invalid_context_window_tokens' },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 
   it('передаёт историю в Responses API и нормализует поток DeepSeek', async () => {
     process.env.DEEPSEEK_API_KEY = 'test-secret';

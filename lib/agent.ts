@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
   DEFAULT_MODEL,
   DEFAULT_TARGET_OUTPUT_TOKENS,
   DEFAULT_TEMPERATURE,
@@ -28,6 +29,7 @@ export interface AgentConfig {
   model: string;
   temperature: number;
   outputFormat: ChatOutputFormat;
+  contextWindowTokens: number;
   // `null` disables the target length (and, with it, the derived
   // max-output cap) — the model is free to answer at whatever length it
   // judges appropriate, up to the technical API ceiling.
@@ -120,6 +122,7 @@ export function createDefaultAgentConfig(): AgentConfig {
     model: DEFAULT_MODEL,
     temperature: DEFAULT_TEMPERATURE,
     outputFormat: 'text',
+    contextWindowTokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
     targetOutputTokens: DEFAULT_TARGET_OUTPUT_TOKENS,
     useSystemPrompt: true,
     useSelectorSystemPrompt: true,
@@ -217,6 +220,32 @@ export class Agent {
     this.notify();
   }
 
+  private latestExactContextTokens(): number | null {
+    for (let index = this.messages.length - 1; index >= 0; index -= 1) {
+      const message = this.messages[index];
+      if (message.role === 'assistant' && message.contextTokens !== undefined) {
+        return message.contextTokens;
+      }
+    }
+
+    return null;
+  }
+
+  private contextLimitMessage(
+    exactContextTokens: number,
+    nextRequestBlocked: boolean,
+  ): string {
+    const state =
+      exactContextTokens > this.config.contextWindowTokens
+        ? 'переполнен'
+        : 'достиг лимита';
+    const consequence = nextRequestBlocked
+      ? 'Новый запрос не отправлен.'
+      : 'Ответ получен, но следующий запрос будет заблокирован.';
+
+    return `Контекст ${state}: DeepSeek насчитал ${exactContextTokens.toLocaleString('ru-RU')} входных токенов при лимите агента ${this.config.contextWindowTokens.toLocaleString('ru-RU')}. ${consequence} Увеличьте лимит или очистите историю.`;
+  }
+
   private async prepareAttachments(
     files: File[],
     signal: AbortSignal,
@@ -299,6 +328,16 @@ export class Agent {
     const trimmed = content.trim();
     if ((!trimmed && files.length === 0) || this.isGenerating) return;
 
+    const exactContextTokens = this.latestExactContextTokens();
+    if (
+      exactContextTokens !== null &&
+      exactContextTokens >= this.config.contextWindowTokens
+    ) {
+      this.error = this.contextLimitMessage(exactContextTokens, true);
+      this.notify();
+      return;
+    }
+
     const controller = new AbortController();
     let assistantMessageId: string | null = null;
 
@@ -353,6 +392,7 @@ export class Agent {
         body: JSON.stringify({
           messages: requestMessages,
           format: this.config.outputFormat,
+          contextWindowTokens: this.config.contextWindowTokens,
           targetOutputTokens: this.config.targetOutputTokens,
           temperature: this.config.temperature,
           model: this.config.model,
@@ -405,6 +445,13 @@ export class Agent {
               ? {}
               : { cachedContextTokens: event.cachedInputTokens }),
           }));
+          if (
+            event.inputTokens !== undefined &&
+            event.inputTokens >= this.config.contextWindowTokens
+          ) {
+            this.error = this.contextLimitMessage(event.inputTokens, false);
+            this.notify();
+          }
         } else if (event.type === 'error') {
           throw new Error(event.message);
         }

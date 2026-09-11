@@ -1,5 +1,7 @@
 import { Agent, type AgentConfig, type PersistedAgentState } from '@/lib/agent';
 import {
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
+  isValidContextWindowTokens,
   isValidModel,
   isValidTargetOutputTokensOrNull,
   isValidTemperature,
@@ -118,6 +120,12 @@ function restoreAttachment(value: unknown): ChatAttachment | null {
 function restoreConfig(value: unknown): AgentConfig | null {
   if (!isRecord(value)) return null;
 
+  // Sessions written before the artificial limit was introduced use the
+  // model's full context window and remain loadable without a data migration.
+  const contextWindowTokens =
+    value.contextWindowTokens === undefined
+      ? DEFAULT_CONTEXT_WINDOW_TOKENS
+      : value.contextWindowTokens;
   const customSystemPrompt = value.customSystemPrompt;
   const hasValidCustomSystemPrompt =
     customSystemPrompt === null ||
@@ -128,6 +136,7 @@ function restoreConfig(value: unknown): AgentConfig | null {
     !isValidModel(value.model) ||
     !isValidTemperature(value.temperature) ||
     !isOutputFormat(value.outputFormat) ||
+    !isValidContextWindowTokens(contextWindowTokens) ||
     !isValidTargetOutputTokensOrNull(value.targetOutputTokens) ||
     typeof value.useSystemPrompt !== 'boolean' ||
     typeof value.useSelectorSystemPrompt !== 'boolean' ||
@@ -143,6 +152,7 @@ function restoreConfig(value: unknown): AgentConfig | null {
     model: value.model,
     temperature: value.temperature,
     outputFormat: value.outputFormat,
+    contextWindowTokens,
     targetOutputTokens: value.targetOutputTokens,
     useSystemPrompt: value.useSystemPrompt,
     useSelectorSystemPrompt: value.useSelectorSystemPrompt,

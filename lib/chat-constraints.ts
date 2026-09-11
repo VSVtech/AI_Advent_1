@@ -1,3 +1,5 @@
+import type { ApiChatMessage } from '@/lib/chat-types';
+
 export const DEFAULT_TARGET_OUTPUT_TOKENS = 500;
 export const MIN_TARGET_OUTPUT_TOKENS = 50;
 export const MAX_MAX_OUTPUT_TOKENS = 100_000;
@@ -5,6 +7,14 @@ export const MIN_OUTPUT_TOKEN_HEADROOM = 500;
 export const MAX_OUTPUT_TOKEN_HEADROOM = 2000;
 export const MAX_TARGET_OUTPUT_TOKENS =
   MAX_MAX_OUTPUT_TOKENS - MAX_OUTPUT_TOKEN_HEADROOM;
+
+export const DEFAULT_CONTEXT_WINDOW_TOKENS = 1_000_000;
+export const MIN_CONTEXT_WINDOW_TOKENS = 100;
+export const MAX_CONTEXT_WINDOW_TOKENS = 1_000_000;
+
+const MESSAGE_TOKEN_OVERHEAD = 4;
+const RESPONSE_PRIMING_TOKENS = 2;
+const IMAGE_TOKEN_ESTIMATE = 1024;
 
 export const DEFAULT_TEMPERATURE = 1;
 export const MIN_TEMPERATURE = 0;
@@ -44,11 +54,55 @@ export function formatModelLabel(id: string): string {
 }
 
 // Грубая локальная оценка числа токенов до получения usage от DeepSeek.
-// Приближение "~4 символа на токен" годится для порядка величины, но не для
-// точного биллинга; источником точных значений остаётся ответ API.
+// Считаем UTF-8-байты, а не UTF-16 code units: прежняя оценка сильно
+// занижала объём кириллицы и другого Unicode-текста. Для точного биллинга
+// источником истины всё равно остаётся usage из ответа API.
 export function estimateTokenCount(text: string): number {
   const trimmed = text.trim();
-  return trimmed ? Math.max(1, Math.ceil(trimmed.length / 4)) : 0;
+  return trimmed
+    ? Math.max(1, Math.ceil(new TextEncoder().encode(trimmed).byteLength / 4))
+    : 0;
+}
+
+export function isValidContextWindowTokens(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= MIN_CONTEXT_WINDOW_TOKENS &&
+    value <= MAX_CONTEXT_WINDOW_TOKENS
+  );
+}
+
+// Preflight estimate for the complete input sent to DeepSeek. Exact input
+// usage is only available after a successful response, so the artificial
+// context-window guard intentionally uses the same local ~4 UTF-8 bytes/token
+// approximation as individual messages. Images receive a conservative fixed
+// estimate because their token cost is determined by the API.
+export function estimateContextTokenCount(
+  messages: ApiChatMessage[],
+  systemPrompt: string | null,
+): number {
+  const messageTokens = messages.reduce((total, message) => {
+    const contentTokens =
+      typeof message.content === 'string'
+        ? estimateTokenCount(message.content)
+        : message.content.reduce(
+            (contentTotal, part) =>
+              contentTotal +
+              (part.type === 'input_text'
+                ? estimateTokenCount(part.text)
+                : IMAGE_TOKEN_ESTIMATE),
+            0,
+          );
+
+    return total + MESSAGE_TOKEN_OVERHEAD + contentTokens;
+  }, 0);
+
+  return (
+    messageTokens +
+    (systemPrompt ? estimateTokenCount(systemPrompt) : 0) +
+    RESPONSE_PRIMING_TOKENS
+  );
 }
 
 export function isValidTargetOutputTokens(value: unknown): value is number {

@@ -3,13 +3,17 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateMaxOutputTokens,
   calculateTargetOutputRange,
+  estimateContextTokenCount,
   estimateTokenCount,
+  isValidContextWindowTokens,
   isValidModel,
   isValidTargetOutputTokens,
   isValidTargetOutputTokensOrNull,
   isValidTemperature,
   MAX_MAX_OUTPUT_TOKENS,
+  MAX_CONTEXT_WINDOW_TOKENS,
   MAX_MODEL_ID_LENGTH,
+  MIN_CONTEXT_WINDOW_TOKENS,
 } from '@/lib/chat-constraints';
 
 describe('ограничения длины ответа', () => {
@@ -127,12 +131,54 @@ describe('оценка числа токенов', () => {
 
   it('округляет вверх и не опускается ниже 1 для непустого текста', () => {
     expect(estimateTokenCount('a')).toBe(1);
-    expect(estimateTokenCount('Привет')).toBe(2);
+    expect(estimateTokenCount('Привет')).toBe(3);
     expect(estimateTokenCount('x'.repeat(400))).toBe(100);
     expect(estimateTokenCount('x'.repeat(401))).toBe(101);
   });
 
+  it('учитывает UTF-8-размер Unicode-текста', () => {
+    expect(estimateTokenCount('т'.repeat(100))).toBe(50);
+    expect(estimateTokenCount('a'.repeat(100))).toBe(25);
+  });
+
   it('игнорирует ведущие и хвостовые пробелы', () => {
     expect(estimateTokenCount('  привет  ')).toBe(estimateTokenCount('привет'));
+  });
+
+  it('оценивает полный контекст вместе с ролями, системным промптом и изображениями', () => {
+    expect(
+      estimateContextTokenCount(
+        [
+          { role: 'user', content: 'x'.repeat(40) },
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: 'y'.repeat(20) },
+              { type: 'input_image', file_id: 'file-api-image-1' },
+            ],
+          },
+        ],
+        'z'.repeat(12),
+      ),
+    ).toBe(1052);
+  });
+});
+
+describe('искусственный лимит контекста', () => {
+  it.each([MIN_CONTEXT_WINDOW_TOKENS, 2000, MAX_CONTEXT_WINDOW_TOKENS])(
+    'принимает допустимый лимит %s',
+    (value) => {
+      expect(isValidContextWindowTokens(value)).toBe(true);
+    },
+  );
+
+  it.each([
+    MIN_CONTEXT_WINDOW_TOKENS - 1,
+    MAX_CONTEXT_WINDOW_TOKENS + 1,
+    100.5,
+    Number.NaN,
+    '2000',
+  ])('отклоняет недопустимый лимит %s', (value) => {
+    expect(isValidContextWindowTokens(value)).toBe(false);
   });
 });

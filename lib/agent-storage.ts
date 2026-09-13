@@ -132,6 +132,12 @@ function restoreConfig(value: unknown): AgentConfig | null {
     value.contextWindowTokens === undefined
       ? DEFAULT_CONTEXT_WINDOW_TOKENS
       : value.contextWindowTokens;
+  // Sessions saved before context compression became configurable used it by
+  // default, so preserve that behavior during migration.
+  const useContextCompression =
+    value.useContextCompression === undefined
+      ? true
+      : value.useContextCompression;
   const customSystemPrompt = value.customSystemPrompt;
   const hasValidCustomSystemPrompt =
     customSystemPrompt === null ||
@@ -143,6 +149,7 @@ function restoreConfig(value: unknown): AgentConfig | null {
     !isValidTemperature(value.temperature) ||
     !isOutputFormat(value.outputFormat) ||
     !isValidContextWindowTokens(contextWindowTokens) ||
+    typeof useContextCompression !== 'boolean' ||
     !isValidTargetOutputTokensOrNull(value.targetOutputTokens) ||
     typeof value.useSystemPrompt !== 'boolean' ||
     typeof value.useSelectorSystemPrompt !== 'boolean' ||
@@ -159,6 +166,7 @@ function restoreConfig(value: unknown): AgentConfig | null {
     temperature: value.temperature,
     outputFormat: value.outputFormat,
     contextWindowTokens,
+    useContextCompression,
     targetOutputTokens: value.targetOutputTokens,
     useSystemPrompt: value.useSystemPrompt,
     useSelectorSystemPrompt: value.useSelectorSystemPrompt,
@@ -167,6 +175,13 @@ function restoreConfig(value: unknown): AgentConfig | null {
 }
 
 function restoreContextSummary(value: unknown): AgentContextSummary | null {
+  const lastSummarizedMessageId =
+    isRecord(value) && value.lastSummarizedMessageId === undefined
+      ? null
+      : isRecord(value)
+        ? value.lastSummarizedMessageId
+        : null;
+
   if (
     !isRecord(value) ||
     typeof value.content !== 'string' ||
@@ -175,6 +190,9 @@ function restoreContextSummary(value: unknown): AgentContextSummary | null {
     typeof value.summarizedMessageCount !== 'number' ||
     !Number.isInteger(value.summarizedMessageCount) ||
     value.summarizedMessageCount <= 0 ||
+    (lastSummarizedMessageId !== null &&
+      (typeof lastSummarizedMessageId !== 'string' ||
+        !lastSummarizedMessageId.trim())) ||
     typeof value.updatedAt !== 'number' ||
     !Number.isFinite(value.updatedAt) ||
     value.updatedAt < 0
@@ -185,6 +203,7 @@ function restoreContextSummary(value: unknown): AgentContextSummary | null {
   return {
     content: value.content,
     summarizedMessageCount: value.summarizedMessageCount,
+    lastSummarizedMessageId,
     updatedAt: value.updatedAt,
   };
 }

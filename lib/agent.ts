@@ -30,6 +30,7 @@ export interface AgentConfig {
   temperature: number;
   outputFormat: ChatOutputFormat;
   contextWindowTokens: number;
+  useContextCompression: boolean;
   // `null` disables the target length (and, with it, the derived
   // max-output cap) — the model is free to answer at whatever length it
   // judges appropriate, up to the technical API ceiling.
@@ -48,6 +49,10 @@ export interface AgentSnapshot {
 export interface AgentContextSummary {
   content: string;
   summarizedMessageCount: number;
+  // Marks the last message from the full UI history already represented by
+  // the summary. Legacy summaries use null because their source messages were
+  // removed before full-history retention was introduced.
+  lastSummarizedMessageId: string | null;
   updatedAt: number;
 }
 
@@ -142,7 +147,16 @@ function toContextApiMessages(
   summary: AgentContextSummary | null,
   messages: ChatMessage[],
 ): ApiChatMessage[] {
-  const recentMessages = toApiMessages(messages);
+  const lastSummarizedIndex = summary?.lastSummarizedMessageId
+    ? messages.findIndex(
+        (message) => message.id === summary.lastSummarizedMessageId,
+      )
+    : -1;
+  const recentMessages = toApiMessages(
+    lastSummarizedIndex >= 0
+      ? messages.slice(lastSummarizedIndex + 1)
+      : messages,
+  );
 
   if (!summary) return recentMessages;
 
@@ -207,6 +221,7 @@ export function createDefaultAgentConfig(): AgentConfig {
     temperature: DEFAULT_TEMPERATURE,
     outputFormat: 'text',
     contextWindowTokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
+    useContextCompression: true,
     targetOutputTokens: DEFAULT_TARGET_OUTPUT_TOKENS,
     useSystemPrompt: true,
     useSelectorSystemPrompt: true,
@@ -252,9 +267,9 @@ export class Agent {
     this.name = name?.trim() || `Агент · ${formatModelLabel(config.model)}`;
     this.messages =
       restoredState?.messages.map((message) => cloneMessage(message)) ?? [];
-    this.contextSummary = cloneContextSummary(
-      restoredState?.contextSummary ?? null,
-    );
+    this.contextSummary = config.useContextCompression
+      ? cloneContextSummary(restoredState?.contextSummary ?? null)
+      : null;
     this.snapshot = {
       messages: this.messages,
       isGenerating: false,
@@ -393,11 +408,42 @@ export class Agent {
     return summary.slice(0, MAX_CONTEXT_SUMMARY_LENGTH);
   }
 
-  private async compactContext(signal: AbortSignal): Promise<void> {
-    while (this.messages.length > RECENT_CONTEXT_MESSAGE_LIMIT) {
-      const overflow = this.messages.length - RECENT_CONTEXT_MESSAGE_LIMIT;
+  private firstUnsummarizedMessageIndex(): number {
+    const lastSummarizedMessageId =
+      this.contextSummary?.lastSummarizedMessageId;
+    if (!lastSummarizedMessageId) return 0;
+
+    const lastSummarizedIndex = this.messages.findIndex(
+      (message) => message.id === lastSummarizedMessageId,
+    );
+    return lastSummarizedIndex >= 0 ? lastSummarizedIndex + 1 : 0;
+  }
+
+  private hasContextToCompact(): boolean {
+    return (
+      this.config.useContextCompression &&
+      this.messages.length - this.firstUnsummarizedMessageIndex() >
+        RECENT_CONTEXT_MESSAGE_LIMIT
+    );
+  }
+
+  private async compactContext(signal: AbortSignal): Promise<boolean> {
+    if (!this.config.useContextCompression) return false;
+
+    let compacted = false;
+
+    while (true) {
+      const firstUnsummarizedIndex = this.firstUnsummarizedMessageIndex();
+      const unsummarizedMessageCount =
+        this.messages.length - firstUnsummarizedIndex;
+      if (unsummarizedMessageCount <= RECENT_CONTEXT_MESSAGE_LIMIT) break;
+
+      const overflow = unsummarizedMessageCount - RECENT_CONTEXT_MESSAGE_LIMIT;
       const batchSize = Math.min(overflow, CONTEXT_SUMMARY_BATCH_SIZE);
-      const messagesToSummarize = this.messages.slice(0, batchSize);
+      const messagesToSummarize = this.messages.slice(
+        firstUnsummarizedIndex,
+        firstUnsummarizedIndex + batchSize,
+      );
       const content = await this.requestContextSummary(
         messagesToSummarize,
         signal,
@@ -407,11 +453,15 @@ export class Agent {
         content,
         summarizedMessageCount:
           (this.contextSummary?.summarizedMessageCount ?? 0) + batchSize,
+        lastSummarizedMessageId:
+          messagesToSummarize[messagesToSummarize.length - 1].id,
         updatedAt: Date.now(),
       };
-      this.messages = this.messages.slice(batchSize);
+      compacted = true;
       this.notify();
     }
+
+    return compacted;
   }
 
   private async prepareAttachments(
@@ -497,9 +547,14 @@ export class Agent {
     if ((!trimmed && files.length === 0) || this.isGenerating) return;
 
     const exactContextTokens = this.latestExactContextTokens();
+    const canRefreshCompressedContext =
+      this.config.useContextCompression &&
+      (this.contextSummary !== null ||
+        this.messages.length > RECENT_CONTEXT_MESSAGE_LIMIT);
     if (
       exactContextTokens !== null &&
-      exactContextTokens >= this.config.contextWindowTokens
+      exactContextTokens >= this.config.contextWindowTokens &&
+      !canRefreshCompressedContext
     ) {
       this.error = this.contextLimitMessage(exactContextTokens, true);
       this.notify();
@@ -515,9 +570,9 @@ export class Agent {
     this.notify();
 
     try {
-      // Older persisted sessions may contain an unbounded raw history. Bring
-      // them into the same compact representation before the next chat call.
-      if (this.messages.length > RECENT_CONTEXT_MESSAGE_LIMIT) {
+      // Older persisted sessions may contain an unbounded raw history. Build
+      // an API-only summary before the next call without deleting UI history.
+      if (this.hasContextToCompact()) {
         await this.compactContext(controller.signal);
       }
 
@@ -555,10 +610,10 @@ export class Agent {
         format: this.config.outputFormat,
       };
       assistantMessageId = assistantMessage.id;
-      const requestMessages = toContextApiMessages(this.contextSummary, [
-        ...this.messages,
-        userMessage,
-      ]);
+      const requestMessages = toContextApiMessages(
+        this.config.useContextCompression ? this.contextSummary : null,
+        [...this.messages, userMessage],
+      );
 
       this.messages = [...this.messages, userMessage, assistantMessage];
       this.notify();
@@ -597,6 +652,7 @@ export class Agent {
       }
 
       let completed = false;
+      let exactInputTokens: number | undefined;
 
       await readChatStream(response.body, (event: ChatStreamEvent) => {
         if (event.type === 'delta') {
@@ -606,6 +662,7 @@ export class Agent {
           }));
         } else if (event.type === 'done') {
           completed = true;
+          exactInputTokens = event.inputTokens;
           this.updateAssistant(assistantMessage.id, (message) => ({
             ...message,
             status: 'complete',
@@ -622,13 +679,6 @@ export class Agent {
               ? {}
               : { cachedContextTokens: event.cachedInputTokens }),
           }));
-          if (
-            event.inputTokens !== undefined &&
-            event.inputTokens >= this.config.contextWindowTokens
-          ) {
-            this.error = this.contextLimitMessage(event.inputTokens, false);
-            this.notify();
-          }
         } else if (event.type === 'error') {
           throw new Error(event.message);
         }
@@ -641,8 +691,9 @@ export class Agent {
         }));
       }
 
+      let contextWasCompacted = false;
       try {
-        await this.compactContext(controller.signal);
+        contextWasCompacted = await this.compactContext(controller.signal);
       } catch (summaryError) {
         if (!controller.signal.aborted) {
           this.error = `Ответ получен, но контекст пока не сжат: ${
@@ -652,6 +703,14 @@ export class Agent {
           }`;
           this.notify();
         }
+      }
+      if (
+        exactInputTokens !== undefined &&
+        exactInputTokens >= this.config.contextWindowTokens &&
+        !contextWasCompacted
+      ) {
+        this.error = this.contextLimitMessage(exactInputTokens, false);
+        this.notify();
       }
     } catch (caughtError) {
       if (controller.signal.aborted) {

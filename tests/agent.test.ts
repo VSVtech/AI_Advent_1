@@ -382,7 +382,7 @@ describe('Agent', () => {
             ])
           : sseResponse([
               'event: delta\ndata: {"content":"Ответ"}\n\n',
-              'event: done\ndata: {"finishReason":"stop"}\n\n',
+              'event: done\ndata: {"finishReason":"stop","inputTokens":120}\n\n',
             ]),
       );
     });
@@ -397,7 +397,7 @@ describe('Agent', () => {
         status: 'complete',
       }),
     );
-    const agent = new Agent(config(), 'Агент', {
+    const agent = new Agent(config({ contextWindowTokens: 100 }), 'Агент', {
       id: 'agent-with-long-context',
       createdAt: 123,
       messages,
@@ -413,12 +413,14 @@ describe('Agent', () => {
     expect(requests[1].messages[0].content).toContain('Сообщение 2');
 
     const compacted = agent.exportState();
-    expect(compacted.messages).toHaveLength(RECENT_CONTEXT_MESSAGE_LIMIT);
-    expect(compacted.messages[0].content).toBe('Сообщение 3');
+    expect(compacted.messages).toHaveLength(RECENT_CONTEXT_MESSAGE_LIMIT + 2);
+    expect(compacted.messages[0].content).toBe('Сообщение 1');
     expect(compacted.contextSummary).toMatchObject({
       content: 'Пользователь представился Виктором.',
       summarizedMessageCount: 2,
+      lastSummarizedMessageId: 'message-2',
     });
+    expect(agent.getSnapshot().error).toBeNull();
 
     await agent.sendMessage('Как меня зовут?');
 
@@ -427,10 +429,66 @@ describe('Agent', () => {
       content:
         'Краткое содержание предыдущей части диалога:\nПользователь представился Виктором.',
     });
+    expect(requests[2].messages[1]).toEqual({
+      role: 'user',
+      content: 'Сообщение 3',
+    });
     expect(requests[2].messages.at(-1)).toEqual({
       role: 'user',
       content: 'Как меня зовут?',
     });
+  });
+
+  it('не сжимает историю и не использует старую сводку, если настройка отключена', async () => {
+    const requests: ChatRequest[] = [];
+    const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => {
+      requests.push(JSON.parse(init.body as string) as ChatRequest);
+      return Promise.resolve(
+        sseResponse([
+          'event: delta\ndata: {"content":"Ответ"}\n\n',
+          'event: done\ndata: {"finishReason":"stop"}\n\n',
+        ]),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const messages: ChatMessage[] = Array.from(
+      { length: RECENT_CONTEXT_MESSAGE_LIMIT },
+      (_, index) => ({
+        id: `message-${index + 1}`,
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        content: `Сообщение ${index + 1}`,
+        status: 'complete',
+      }),
+    );
+    const agent = new Agent(
+      config({ useContextCompression: false }),
+      'Агент без сжатия',
+      {
+        id: 'agent-without-compression',
+        createdAt: 123,
+        messages,
+        contextSummary: {
+          content: 'Эта старая сводка не должна использоваться.',
+          summarizedMessageCount: 10,
+          lastSummarizedMessageId: 'message-2',
+          updatedAt: 100,
+        },
+      },
+    );
+
+    await agent.sendMessage('Новый вопрос');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requests[0].messages).toHaveLength(RECENT_CONTEXT_MESSAGE_LIMIT + 1);
+    expect(requests[0].messages[0]).toEqual({
+      role: 'user',
+      content: 'Сообщение 1',
+    });
+    expect(agent.exportState().messages).toHaveLength(
+      RECENT_CONTEXT_MESSAGE_LIMIT + 2,
+    );
+    expect(agent.exportState().contextSummary).toBeNull();
   });
 
   it('не добавляет поля контекстных токенов, если событие done их не содержит', async () => {

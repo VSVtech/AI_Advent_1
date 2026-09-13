@@ -134,16 +134,18 @@ describe('долговременное хранение сессий агент�
     expect(restored.agents[0].config.targetOutputTokens).toBeNull();
   });
 
-  it('восстанавливает искусственный лимит контекста и мигрирует старые сессии', () => {
+  it('восстанавливает настройки контекста и мигрирует старые сессии', () => {
     const limitedState = agentState({
       config: {
         ...createDefaultAgentConfig(),
         contextWindowTokens: 2000,
+        useContextCompression: false,
       },
     });
     const legacyState = agentState({ id: 'legacy-agent' });
     const legacyConfig = { ...legacyState.config } as Record<string, unknown>;
     delete legacyConfig.contextWindowTokens;
+    delete legacyConfig.useContextCompression;
 
     const restored = deserializeAgentSessions(
       JSON.stringify({
@@ -154,7 +156,9 @@ describe('долговременное хранение сессий агент�
     );
 
     expect(restored.agents[0].config.contextWindowTokens).toBe(2000);
+    expect(restored.agents[0].config.useContextCompression).toBe(false);
     expect(restored.agents[1].config.contextWindowTokens).toBe(1_000_000);
+    expect(restored.agents[1].config.useContextCompression).toBe(true);
   });
 
   it('сохраняет и восстанавливает summary отдельно от последних сообщений', () => {
@@ -162,6 +166,7 @@ describe('долговременное хранение сессий агент�
       contextSummary: {
         content: 'Пользователь работает над агентом с DeepSeek.',
         summarizedMessageCount: 10,
+        lastSummarizedMessageId: 'message-1',
         updatedAt: 456,
       },
     });
@@ -185,21 +190,35 @@ describe('долговременное хранение сессий агент�
       contextSummary: {
         content: '',
         summarizedMessageCount: -1,
+        lastSummarizedMessageId: '',
         updatedAt: Number.NaN,
+      },
+    };
+    const legacySummaryState = {
+      ...agentState({ id: 'agent-3' }),
+      contextSummary: {
+        content: 'Сводка из предыдущей версии.',
+        summarizedMessageCount: 10,
+        updatedAt: 789,
       },
     };
 
     const restored = deserializeAgentSessions(
       JSON.stringify({
         version: 1,
-        agents: [legacyState, invalidSummaryState],
+        agents: [legacyState, invalidSummaryState, legacySummaryState],
         activeAgentId: legacyState.id,
       }),
     );
 
-    expect(restored.agents).toHaveLength(2);
+    expect(restored.agents).toHaveLength(3);
     expect(restored.agents[0].exportState().contextSummary).toBeNull();
     expect(restored.agents[1].exportState().contextSummary).toBeNull();
+    expect(restored.agents[2].exportState().contextSummary).toMatchObject({
+      content: 'Сводка из предыдущей версии.',
+      summarizedMessageCount: 10,
+      lastSummarizedMessageId: null,
+    });
   });
 
   it('игнорирует повреждённые значения счётчиков токенов', () => {

@@ -65,6 +65,7 @@ export function AgentSetup({
   const [contextWindowTokens, setContextWindowTokens] = useState(
     String(DEFAULT_CONTEXT_WINDOW_TOKENS),
   );
+  const [useContextCompression, setUseContextCompression] = useState(true);
   const [useSystemPrompt, setUseSystemPrompt] = useState(true);
   const [useSelectorSystemPrompt, setUseSelectorSystemPrompt] = useState(true);
   const [customSystemPrompt, setCustomSystemPrompt] = useState<string | null>(
@@ -123,6 +124,7 @@ export function AgentSetup({
         temperature: parsedTemperature,
         outputFormat,
         contextWindowTokens: parsedContextWindowTokens,
+        useContextCompression,
         targetOutputTokens: resolvedTargetOutputTokens,
         useSystemPrompt,
         useSelectorSystemPrompt,
@@ -307,6 +309,24 @@ export function AgentSetup({
             <p id="agent-context-window-hint" className="system-prompt-hint">
               Реальный предел — {MAX_CONTEXT_WINDOW_TOKENS} токенов. Для теста
               переполнения установите, например, 2000.
+            </p>
+          </div>
+
+          <div className="agent-setup-field sm:col-span-2 lg:col-span-4">
+            <label
+              className="agent-setup-checkbox-label w-fit"
+              htmlFor="agent-context-compression"
+            >
+              <Checkbox
+                id="agent-context-compression"
+                checked={useContextCompression}
+                onCheckedChange={setUseContextCompression}
+              />
+              Использовать сжатие контекста
+            </label>
+            <p className="system-prompt-hint">
+              Если включено, агент хранит последние 10 сообщений как есть, а
+              более старые заменяет накопительной сводкой.
             </p>
           </div>
         </div>

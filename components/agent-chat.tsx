@@ -223,9 +223,23 @@ export function AgentChat({ agent }: { agent: Agent }) {
   const [input, setInput] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [mergeWithBranchId, setMergeWithBranchId] = useState('');
+  const [branchFeedback, setBranchFeedback] = useState<{
+    tone: 'success' | 'error';
+    text: string;
+  } | null>(null);
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const mergeCandidates = agent
+    .getBranches()
+    .filter((branch) => branch.id !== agent.getActiveBranchId());
+  const selectedMergeBranchId = mergeCandidates.some(
+    (branch) => branch.id === mergeWithBranchId,
+  )
+    ? mergeWithBranchId
+    : (mergeCandidates.at(-1)?.id ?? '');
+  const activeBranchSummary = agent.getActiveBranchSummary();
 
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({
@@ -293,6 +307,29 @@ export function AgentChat({ agent }: { agent: Agent }) {
     sendMessage();
   };
 
+  const handleCreateBranches = () => {
+    const created = agent.createBranches();
+    if (!created) {
+      setBranchFeedback({
+        tone: 'error',
+        text: 'Не удалось создать ветки. Проверьте checkpoint и попробуйте снова.',
+      });
+      return;
+    }
+
+    const branches = agent.getBranches();
+    const firstName =
+      branches.find((branch) => branch.id === created[0])?.name ??
+      'первая ветка';
+    const secondName =
+      branches.find((branch) => branch.id === created[1])?.name ??
+      'вторая ветка';
+    setBranchFeedback({
+      tone: 'success',
+      text: `Созданы «${firstName}» и «${secondName}». Сейчас активна «${firstName}».`,
+    });
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -345,7 +382,7 @@ export function AgentChat({ agent }: { agent: Agent }) {
 
       {agent.config.contextStrategy === 'sticky-facts' ? (
         <section
-          className="border-b border-white/10 px-5 py-3"
+          className="shrink-0 border-b border-white/10 px-5 py-3"
           aria-label="Память facts"
         >
           <p className="text-xs font-semibold text-white/70">Память facts</p>
@@ -366,50 +403,150 @@ export function AgentChat({ agent }: { agent: Agent }) {
 
       {agent.config.contextStrategy === 'branching' ? (
         <section
-          className="flex flex-wrap items-center gap-2 border-b border-white/10 px-5 py-3"
+          className="max-h-[min(30dvh,18rem)] shrink-0 overflow-y-auto border-b border-white/10 px-4 py-3 sm:px-6"
           aria-label="Ветки диалога"
         >
-          <GitBranch className="size-4 text-white/50" aria-hidden="true" />
-          <label
-            className="text-xs text-white/60"
-            htmlFor="agent-branch-select"
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-white/85">
+              <GitBranch
+                className="size-4 text-emerald-300/80"
+                aria-hidden="true"
+              />
+              Ветки диалога
+              <span className="font-normal text-white/40">
+                {agent.getBranches().length}
+              </span>
+            </h2>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-9 border-white/15 bg-white/[0.035] px-3 text-white/85 hover:bg-white/[0.08]"
+              disabled={isGenerating || agent.getBranches().length > 18}
+              onClick={handleCreateBranches}
+            >
+              Создать 2 ветки
+            </Button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <label
+              className="text-xs text-white/60"
+              htmlFor="agent-branch-select"
+            >
+              Активная ветка
+            </label>
+            <select
+              id="agent-branch-select"
+              value={agent.getActiveBranchId()}
+              disabled={isGenerating}
+              onChange={(event) => {
+                const branchId = event.target.value;
+                if (agent.switchBranch(branchId)) {
+                  const branchName =
+                    agent.getBranches().find((branch) => branch.id === branchId)
+                      ?.name ?? 'ветка';
+                  setBranchFeedback({
+                    tone: 'success',
+                    text: `Активна «${branchName}». История других веток сохранена.`,
+                  });
+                }
+              }}
+              className="min-h-9 min-w-32 max-w-full rounded-lg border border-white/15 bg-neutral-900 px-3 py-1 text-sm text-white"
+            >
+              {agent.getBranches().map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs leading-5 text-white/45">
+              {agent.getCheckpointMessageId()
+                ? 'Checkpoint выбран'
+                : messages.some(
+                      (message) =>
+                        message.role === 'assistant' &&
+                        message.status === 'complete',
+                    )
+                  ? 'Точка ветвления — последний ответ'
+                  : 'Точка ветвления — начало диалога'}
+            </span>
+          </div>
+          <output
+            aria-live="polite"
+            className={`mt-3 block rounded-lg px-3 py-2 text-xs leading-5 ${
+              branchFeedback?.tone === 'error'
+                ? 'bg-red-400/10 text-red-200'
+                : branchFeedback
+                  ? 'bg-emerald-300/10 text-emerald-100'
+                  : 'bg-white/[0.035] text-white/50'
+            }`}
           >
-            Ветка
-          </label>
-          <select
-            id="agent-branch-select"
-            value={agent.getActiveBranchId()}
-            disabled={isGenerating}
-            onChange={(event) => agent.switchBranch(event.target.value)}
-            className="rounded-md border border-white/15 bg-neutral-900 px-2 py-1 text-xs text-white"
-          >
-            {agent.getBranches().map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {branch.name}
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-white/45">
-            {agent.getCheckpointMessageId()
-              ? 'Checkpoint выбран'
-              : 'Выберите checkpoint у ответа'}
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={
-              !agent.getCheckpointMessageId() ||
-              isGenerating ||
-              agent.getBranches().length > 18
-            }
-            onClick={() => agent.createBranches()}
-          >
-            Создать 2 ветки
-          </Button>
-          <p className="w-full text-xs text-white/40">
-            Исходная история остаётся в своей ветке после создания новых.
-          </p>
+            {branchFeedback?.text ??
+              'Исходная история остаётся в своей ветке после создания новых.'}
+          </output>
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
+            <label
+              className="text-xs text-white/60"
+              htmlFor="agent-merge-branch-select"
+            >
+              Объединить текущую с
+            </label>
+            <select
+              id="agent-merge-branch-select"
+              value={selectedMergeBranchId}
+              disabled={isGenerating || mergeCandidates.length === 0}
+              onChange={(event) => setMergeWithBranchId(event.target.value)}
+              className="min-h-9 min-w-32 max-w-full rounded-lg border border-white/15 bg-neutral-900 px-3 py-1 text-sm text-white"
+            >
+              {mergeCandidates.length ? (
+                mergeCandidates.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))
+              ) : (
+                <option value="">Нет второй ветки</option>
+              )}
+            </select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-9 border-white/15 bg-white/[0.035] px-3 text-white/85 hover:bg-white/[0.08]"
+              disabled={
+                !selectedMergeBranchId ||
+                isGenerating ||
+                agent.getBranches().length >= 20
+              }
+              onClick={() => {
+                void agent.mergeBranches(
+                  agent.getActiveBranchId(),
+                  selectedMergeBranchId,
+                );
+              }}
+            >
+              Объединить ветки
+            </Button>
+          </div>
+          {agent.getMergeStatus() ? (
+            <output className="mt-2 block text-xs text-white/60">
+              {agent.getMergeStatus()}
+            </output>
+          ) : null}
+        </section>
+      ) : null}
+
+      {activeBranchSummary ? (
+        <section
+          className="max-h-[20dvh] shrink-0 overflow-y-auto border-b border-white/10 px-5 py-3"
+          aria-label="Объединённое summary"
+        >
+          <h2 className="mb-2 text-sm font-semibold text-white/80">
+            Объединённое summary
+          </h2>
+          <div className="markdown-body text-sm text-white/70">
+            <MarkdownMessage content={activeBranchSummary} />
+          </div>
         </section>
       ) : null}
 
@@ -563,9 +700,7 @@ export function AgentChat({ agent }: { agent: Agent }) {
           <Alert variant="destructive" className="error-alert">
             <CircleAlert />
             <AlertTitle>
-              {attachmentError
-                ? 'Не удалось прикрепить файл'
-                : 'Не удалось получить ответ'}
+              {attachmentError ? 'Не удалось прикрепить файл' : 'Ошибка агента'}
             </AlertTitle>
             <AlertDescription>{attachmentError ?? error}</AlertDescription>
           </Alert>

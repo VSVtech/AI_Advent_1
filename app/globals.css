@@ -162,11 +162,11 @@ body {
   }
 
   .chat-frame {
-    @apply grid h-full w-full grid-rows-[68px_minmax(0,1fr)_auto] overflow-hidden;
+    @apply flex h-full w-full flex-col overflow-hidden;
   }
 
   .chat-header {
-    @apply flex items-center justify-between border-b border-white/7 px-4 sm:px-6;
+    @apply flex min-h-[68px] shrink-0 items-center justify-between border-b border-white/7 px-4 sm:px-6;
   }
 
   .brand-mark {
@@ -186,13 +186,13 @@ body {
   }
 
   .chat-content {
-    @apply min-h-0 overflow-y-auto overscroll-contain scroll-smooth;
+    @apply min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth;
     scrollbar-color: rgb(255 255 255 / 10%) transparent;
     scrollbar-width: thin;
   }
 
   .empty-state {
-    @apply mx-auto flex h-full max-w-2xl flex-col items-center justify-center gap-7 px-5 py-10;
+    @apply mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center gap-7 px-5 py-10;
   }
 
   .empty-icon {
@@ -428,7 +428,7 @@ body {
   }
 
   .composer-wrap {
-    @apply relative px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5;
+    @apply relative shrink-0 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 sm:px-6 sm:pb-5;
     background: linear-gradient(to top, #10191a 72%, rgb(16 25 26 / 0%));
   }
 

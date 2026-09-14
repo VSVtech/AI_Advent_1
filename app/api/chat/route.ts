@@ -10,6 +10,7 @@ import {
   DEFAULT_TEMPERATURE,
   estimateContextTokenCount,
   isValidContextWindowTokens,
+  isValidMaxOutputTokens,
   isValidModel,
   isValidTargetOutputTokensOrNull,
   isValidTemperature,
@@ -249,7 +250,17 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  const maxOutputTokens = calculateMaxOutputTokens(targetOutputTokens);
+  const maxOutputTokens =
+    body.maxOutputTokens === undefined
+      ? calculateMaxOutputTokens(targetOutputTokens)
+      : body.maxOutputTokens;
+
+  if (!isValidMaxOutputTokens(maxOutputTokens)) {
+    return jsonError(400, {
+      code: 'invalid_max_output_tokens',
+      message: 'Технический лимит длины ответа указан некорректно.',
+    });
+  }
 
   const contextWindowTokens =
     body.contextWindowTokens === undefined
@@ -398,6 +409,14 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   return eventStreamResponse(
-    createNormalizedStream(upstreamResponse.body, request.signal),
+    createNormalizedStream(
+      upstreamResponse.body,
+      request.signal,
+      body.maxOutputTokens === undefined
+        ? {}
+        : {
+            tokenLimitMessage: `Ответ DeepSeek достиг технического лимита вывода ${maxOutputTokens} токенов. Сократите требуемый ответ и повторите запрос.`,
+          },
+    ),
   );
 }

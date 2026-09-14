@@ -1,5 +1,6 @@
 import {
   Agent,
+  MAX_BRANCH_SUMMARY_LENGTH,
   type AgentConfig,
   type AgentBranch,
   type AgentContextSummary,
@@ -308,6 +309,11 @@ function restoreBranches(value: unknown): AgentBranch[] | null {
         const restored = restoreMessage(message);
         return restored ? [restored] : [];
       }),
+      ...(typeof item.summary === 'string' &&
+      item.summary.trim() &&
+      item.summary.length <= MAX_BRANCH_SUMMARY_LENGTH
+        ? { summary: item.summary }
+        : {}),
     });
   }
   return branches;

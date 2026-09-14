@@ -56,6 +56,9 @@ export interface ChatRequest {
   // `null` explicitly disables the target length (and, with it, the
   // derived max-output cap); `undefined` falls back to the default target.
   targetOutputTokens?: number | null;
+  // An explicit technical output cap for internal requests such as summaries.
+  // It does not impose a target response length or a selector system prompt.
+  maxOutputTokens?: number;
   temperature?: number;
   model?: string;
   useSystemPrompt?: boolean;

@@ -114,6 +114,15 @@ export function isValidTargetOutputTokens(value: unknown): value is number {
   );
 }
 
+export function isValidMaxOutputTokens(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= MIN_TARGET_OUTPUT_TOKENS &&
+    value <= MAX_MAX_OUTPUT_TOKENS
+  );
+}
+
 // `null` means "target length disabled" — a legitimate, explicit choice,
 // distinct from an unset/invalid value.
 export function isValidTargetOutputTokensOrNull(

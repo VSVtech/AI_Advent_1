@@ -17,6 +17,7 @@ function chatRequest(
     useSelectorSystemPrompt?: unknown;
     customSystemPrompt?: unknown;
     contextWindowTokens?: unknown;
+    maxOutputTokens?: unknown;
     temperature?: unknown;
     model?: unknown;
   } = {},
@@ -386,6 +387,64 @@ describe('POST /api/chat', () => {
     expect(payload.instructions).toBeUndefined();
   });
 
+  it('принимает отдельный технический лимит для служебной сводки без инструкции целевой длины', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          deepSeekStream([
+            'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+          ]),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest(
+        [{ role: 'user', content: 'Суммаризируй ветку' }],
+        'text',
+        null,
+        {
+          maxOutputTokens: 8192,
+          useSystemPrompt: false,
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    if (typeof init.body !== 'string') throw new Error('Expected JSON body');
+    const payload = JSON.parse(init.body) as {
+      max_output_tokens: number;
+      instructions?: string;
+    };
+    expect(payload.max_output_tokens).toBe(8192);
+    expect(payload.instructions).toBeUndefined();
+  });
+
+  it.each([0, 100_001, 1.5, '8192'])(
+    'отклоняет некорректный технический лимит %s',
+    async (maxOutputTokens) => {
+      process.env.DEEPSEEK_API_KEY = 'test-secret';
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await POST(
+        chatRequest([{ role: 'user', content: 'Привет' }], 'text', null, {
+          maxOutputTokens,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'invalid_max_output_tokens' },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
   it('отключённая целевая длина не мешает инструкциям формата (json)', async () => {
     process.env.DEEPSEEK_API_KEY = 'test-secret';
     vi.stubGlobal(
@@ -620,6 +679,39 @@ describe('POST /api/chat', () => {
     expect(body).toContain('event: delta\ndata: {"content":"Частичный ответ"}');
     expect(body).toContain('event: error\ndata: {"code":"response_incomplete"');
     expect(body).not.toContain('test-secret');
+  });
+
+  it('при служебном лимите вывода не предлагает менять целевую длину обычного ответа', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            deepSeekStream([
+              'event: response.incomplete\ndata: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}\n\n',
+            ]),
+            { status: 200 },
+          ),
+        ),
+    );
+
+    const response = await POST(
+      chatRequest(
+        [{ role: 'user', content: 'Суммаризируй ветку' }],
+        'text',
+        null,
+        {
+          maxOutputTokens: 8192,
+          useSystemPrompt: false,
+        },
+      ),
+    );
+    const body = await response.text();
+
+    expect(body).toContain('технического лимита вывода 8192 токенов');
+    expect(body).not.toContain('целевую длину');
   });
 
   it('заменяет автоматические инструкции кастомным текстом в потоковом запросе', async () => {

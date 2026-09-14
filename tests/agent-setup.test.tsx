@@ -24,16 +24,18 @@ describe('настройка агента', () => {
     expect(input).toContain(`value="${DEFAULT_CONTEXT_WINDOW_TOKENS}"`);
   });
 
-  it('предлагает включённое по умолчанию сжатие контекста', () => {
+  it('предлагает четыре взаимоисключающих режима контекста', () => {
     const markup = renderToStaticMarkup(
       <AgentSetup onCreate={vi.fn()} onCancel={vi.fn()} />,
     );
-    const checkbox = markup.match(
-      /<[^>]+id="agent-context-compression"[^>]*>/,
-    )?.[0];
-
-    expect(markup).toContain('Использовать сжатие контекста');
-    expect(markup).toContain('последние 10 сообщений как есть');
-    expect(checkbox).toContain('checked=""');
+    expect(markup).toContain('Без сжатия');
+    expect(markup).toContain('Sliding Window');
+    expect(markup).toContain('Sticky Facts');
+    expect(markup).toContain('Branching');
+    expect(markup).toContain('Полная история всегда сохраняется');
+    expect(markup.match(/type="radio"/g)).toHaveLength(4);
+    expect(markup).toMatch(
+      /type="radio" id="agent-context-none"[^>]*checked=""/,
+    );
   });
 });

@@ -1,7 +1,7 @@
 import {
   Agent,
-  MAX_CONTEXT_SUMMARY_LENGTH,
   type AgentConfig,
+  type AgentBranch,
   type AgentContextSummary,
   type PersistedAgentState,
 } from '@/lib/agent';
@@ -29,10 +29,12 @@ import type {
   ChatMessageStatus,
   ChatOutputFormat,
 } from '@/lib/chat-types';
+import { isContextStrategy, sanitizeFacts } from '@/lib/context-strategy';
 
 export const AGENT_SESSIONS_STORAGE_KEY = 'deepseek-chat:agent-sessions:v1';
 
 const STORAGE_VERSION = 1;
+const MAX_CONTEXT_SUMMARY_LENGTH = 20_000;
 
 type StorageReader = Pick<Storage, 'getItem'>;
 type StorageWriter = Pick<Storage, 'setItem'>;
@@ -132,12 +134,12 @@ function restoreConfig(value: unknown): AgentConfig | null {
     value.contextWindowTokens === undefined
       ? DEFAULT_CONTEXT_WINDOW_TOKENS
       : value.contextWindowTokens;
-  // Sessions saved before context compression became configurable used it by
-  // default, so preserve that behavior during migration.
-  const useContextCompression =
-    value.useContextCompression === undefined
-      ? true
-      : value.useContextCompression;
+  const contextStrategy =
+    value.contextStrategy === undefined
+      ? value.useContextCompression === false
+        ? 'none'
+        : 'sticky-facts'
+      : value.contextStrategy;
   const customSystemPrompt = value.customSystemPrompt;
   const hasValidCustomSystemPrompt =
     customSystemPrompt === null ||
@@ -149,7 +151,7 @@ function restoreConfig(value: unknown): AgentConfig | null {
     !isValidTemperature(value.temperature) ||
     !isOutputFormat(value.outputFormat) ||
     !isValidContextWindowTokens(contextWindowTokens) ||
-    typeof useContextCompression !== 'boolean' ||
+    !isContextStrategy(contextStrategy) ||
     !isValidTargetOutputTokensOrNull(value.targetOutputTokens) ||
     typeof value.useSystemPrompt !== 'boolean' ||
     typeof value.useSelectorSystemPrompt !== 'boolean' ||
@@ -166,7 +168,7 @@ function restoreConfig(value: unknown): AgentConfig | null {
     temperature: value.temperature,
     outputFormat: value.outputFormat,
     contextWindowTokens,
-    useContextCompression,
+    contextStrategy,
     targetOutputTokens: value.targetOutputTokens,
     useSystemPrompt: value.useSystemPrompt,
     useSelectorSystemPrompt: value.useSelectorSystemPrompt,
@@ -280,6 +282,37 @@ function restoreMessage(value: unknown): ChatMessage | null {
   };
 }
 
+function restoreBranches(value: unknown): AgentBranch[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 20) {
+    return null;
+  }
+  const seenIds = new Set<string>();
+  const branches: AgentBranch[] = [];
+  for (const item of value) {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== 'string' ||
+      !item.id.trim() ||
+      seenIds.has(item.id) ||
+      typeof item.name !== 'string' ||
+      !item.name.trim() ||
+      !Array.isArray(item.messages)
+    ) {
+      return null;
+    }
+    seenIds.add(item.id);
+    branches.push({
+      id: item.id,
+      name: item.name,
+      messages: item.messages.flatMap((message) => {
+        const restored = restoreMessage(message);
+        return restored ? [restored] : [];
+      }),
+    });
+  }
+  return branches;
+}
+
 function restoreAgent(value: unknown): Agent | null {
   if (
     !isRecord(value) ||
@@ -303,12 +336,24 @@ function restoreAgent(value: unknown): Agent | null {
     return restored ? [restored] : [];
   });
   const contextSummary = restoreContextSummary(value.contextSummary);
+  const facts = sanitizeFacts(value.facts) ?? {};
+  const branches = restoreBranches(value.branches) ?? undefined;
+  const activeBranchId =
+    typeof value.activeBranchId === 'string' ? value.activeBranchId : undefined;
+  const checkpointMessageId =
+    typeof value.checkpointMessageId === 'string'
+      ? value.checkpointMessageId
+      : null;
 
   return new Agent(config, value.name, {
     id: value.id,
     createdAt: value.createdAt,
     messages,
     contextSummary,
+    facts,
+    branches,
+    activeBranchId,
+    checkpointMessageId,
   });
 }
 

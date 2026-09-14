@@ -7,6 +7,7 @@ import { SystemPromptControl } from '@/components/system-prompt-control';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
   SelectContent,
@@ -38,12 +39,44 @@ import {
   isValidCustomSystemPrompt,
 } from '@/lib/chat-prompts';
 import type { ChatOutputFormat } from '@/lib/chat-types';
+import {
+  isContextStrategy,
+  type ContextStrategy,
+} from '@/lib/context-strategy';
 
 const outputFormats: Array<{ value: ChatOutputFormat; label: string }> = [
   { value: 'text', label: 'Text' },
   { value: 'json', label: 'JSON' },
   { value: 'xml', label: 'XML' },
   { value: 'yaml', label: 'YAML' },
+];
+
+const contextStrategies: Array<{
+  value: ContextStrategy;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'none',
+    label: 'Без сжатия',
+    description: 'В API отправляется вся история диалога.',
+  },
+  {
+    value: 'sliding-window',
+    label: 'Sliding Window',
+    description: 'В API отправляются только последние 10 сообщений.',
+  },
+  {
+    value: 'sticky-facts',
+    label: 'Sticky Facts',
+    description:
+      'Агент обновляет память facts после каждого сообщения пользователя и отправляет её вместе с последними 10 сообщениями.',
+  },
+  {
+    value: 'branching',
+    label: 'Branching',
+    description: 'Создавайте checkpoint и две независимые ветки диалога.',
+  },
 ];
 
 export function AgentSetup({
@@ -65,7 +98,8 @@ export function AgentSetup({
   const [contextWindowTokens, setContextWindowTokens] = useState(
     String(DEFAULT_CONTEXT_WINDOW_TOKENS),
   );
-  const [useContextCompression, setUseContextCompression] = useState(true);
+  const [contextStrategy, setContextStrategy] =
+    useState<ContextStrategy>('none');
   const [useSystemPrompt, setUseSystemPrompt] = useState(true);
   const [useSelectorSystemPrompt, setUseSelectorSystemPrompt] = useState(true);
   const [customSystemPrompt, setCustomSystemPrompt] = useState<string | null>(
@@ -124,7 +158,7 @@ export function AgentSetup({
         temperature: parsedTemperature,
         outputFormat,
         contextWindowTokens: parsedContextWindowTokens,
-        useContextCompression,
+        contextStrategy,
         targetOutputTokens: resolvedTargetOutputTokens,
         useSystemPrompt,
         useSelectorSystemPrompt,
@@ -312,23 +346,42 @@ export function AgentSetup({
             </p>
           </div>
 
-          <div className="agent-setup-field sm:col-span-2 lg:col-span-4">
-            <label
-              className="agent-setup-checkbox-label w-fit"
-              htmlFor="agent-context-compression"
+          <fieldset className="agent-setup-field sm:col-span-2 lg:col-span-4">
+            <legend className="format-label">Управление контекстом</legend>
+            <RadioGroup
+              value={contextStrategy}
+              onValueChange={(value) => {
+                if (isContextStrategy(value)) setContextStrategy(value);
+              }}
+              className="mt-2 gap-2"
             >
-              <Checkbox
-                id="agent-context-compression"
-                checked={useContextCompression}
-                onCheckedChange={setUseContextCompression}
-              />
-              Использовать сжатие контекста
-            </label>
-            <p className="system-prompt-hint">
-              Если включено, агент хранит последние 10 сообщений как есть, а
-              более старые заменяет накопительной сводкой.
+              {contextStrategies.map((strategy) => (
+                <label
+                  key={strategy.value}
+                  htmlFor={`agent-context-${strategy.value}`}
+                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 p-3 text-sm text-white/80"
+                >
+                  <RadioGroupItem
+                    id={`agent-context-${strategy.value}`}
+                    value={strategy.value}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block font-medium text-white">
+                      {strategy.label}
+                    </span>
+                    <span className="system-prompt-hint">
+                      {strategy.description}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </RadioGroup>
+            <p className="system-prompt-hint mt-2">
+              Полная история всегда сохраняется для интерфейса. Режим определяет
+              только контекст запроса к API.
             </p>
-          </div>
+          </fieldset>
         </div>
 
         {hasInvalidTemperature ? (

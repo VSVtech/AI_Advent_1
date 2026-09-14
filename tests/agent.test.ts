@@ -364,20 +364,20 @@ describe('Agent', () => {
     expect(agent.getSnapshot().messages).toHaveLength(2);
   });
 
-  it('сжимает старые сообщения в отдельную сводку и подставляет её в следующий запрос', async () => {
+  it('обновляет facts после каждого сообщения и отправляет facts с последними 10 сообщениями', async () => {
     const requests: ChatRequest[] = [];
     const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => {
       const request = JSON.parse(init.body as string) as ChatRequest;
       requests.push(request);
       const firstContent = request.messages[0]?.content;
-      const isSummaryRequest =
+      const isFactsRequest =
         typeof firstContent === 'string' &&
-        firstContent.startsWith('Обнови краткое содержание диалога');
+        firstContent.startsWith('Обнови память агента');
 
       return Promise.resolve(
-        isSummaryRequest
+        isFactsRequest
           ? sseResponse([
-              'event: delta\ndata: {"content":"Пользователь представился Виктором."}\n\n',
+              `event: delta\ndata: ${JSON.stringify({ content: '{"имя":"Виктор","цель":"Собрать ТЗ"}' })}\n\n`,
               'event: done\ndata: {"finishReason":"stop"}\n\n',
             ])
           : sseResponse([
@@ -397,46 +397,43 @@ describe('Agent', () => {
         status: 'complete',
       }),
     );
-    const agent = new Agent(config({ contextWindowTokens: 100 }), 'Агент', {
-      id: 'agent-with-long-context',
-      createdAt: 123,
-      messages,
-      contextSummary: null,
-    });
+    const agent = new Agent(
+      config({ contextStrategy: 'sticky-facts', contextWindowTokens: 100 }),
+      'Агент',
+      {
+        id: 'agent-with-long-context',
+        createdAt: 123,
+        messages,
+        contextSummary: null,
+      },
+    );
 
     await agent.sendMessage('Новый вопрос');
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(requests[0].messages).toHaveLength(RECENT_CONTEXT_MESSAGE_LIMIT + 1);
-    expect(requests[1].messages).toHaveLength(1);
-    expect(requests[1].messages[0].content).toContain('Сообщение 1');
-    expect(requests[1].messages[0].content).toContain('Сообщение 2');
+    expect(requests[0].messages).toHaveLength(1);
+    expect(requests[0].messages[0].content).toContain('Новый вопрос');
+    expect(requests[1].messages).toHaveLength(RECENT_CONTEXT_MESSAGE_LIMIT + 1);
+    expect(requests[1].messages[0].content).toContain('"имя":"Виктор"');
+    expect(requests[1].messages[1].content).toBe('Сообщение 2');
+    expect(requests[1].messages.at(-1)?.content).toBe('Новый вопрос');
 
     const compacted = agent.exportState();
     expect(compacted.messages).toHaveLength(RECENT_CONTEXT_MESSAGE_LIMIT + 2);
     expect(compacted.messages[0].content).toBe('Сообщение 1');
-    expect(compacted.contextSummary).toMatchObject({
-      content: 'Пользователь представился Виктором.',
-      summarizedMessageCount: 2,
-      lastSummarizedMessageId: 'message-2',
-    });
+    expect(compacted.facts).toEqual({ имя: 'Виктор', цель: 'Собрать ТЗ' });
+    expect(compacted.contextSummary).toBeNull();
     expect(agent.getSnapshot().error).toBeNull();
 
     await agent.sendMessage('Как меня зовут?');
 
-    expect(requests[2].messages[0]).toEqual({
-      role: 'assistant',
-      content:
-        'Краткое содержание предыдущей части диалога:\nПользователь представился Виктором.',
-    });
-    expect(requests[2].messages[1]).toEqual({
-      role: 'user',
-      content: 'Сообщение 3',
-    });
-    expect(requests[2].messages.at(-1)).toEqual({
+    expect(requests[2].messages[0].content).toContain('"имя":"Виктор"');
+    expect(requests[3].messages[0].content).toContain('"имя":"Виктор"');
+    expect(requests[3].messages.at(-1)).toEqual({
       role: 'user',
       content: 'Как меня зовут?',
     });
+    expect(agent.exportState().messages).toHaveLength(14);
   });
 
   it('не сжимает историю и не использует старую сводку, если настройка отключена', async () => {
@@ -462,7 +459,7 @@ describe('Agent', () => {
       }),
     );
     const agent = new Agent(
-      config({ useContextCompression: false }),
+      config({ contextStrategy: 'none' }),
       'Агент без сжатия',
       {
         id: 'agent-without-compression',

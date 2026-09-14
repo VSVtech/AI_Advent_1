@@ -4,6 +4,7 @@ import { tokenize, type ShjToken } from '@speed-highlight/core';
 import {
   ArrowUp,
   Bot,
+  GitBranch,
   CircleAlert,
   FileText,
   ImageIcon,
@@ -342,6 +343,76 @@ export function AgentChat({ agent }: { agent: Agent }) {
         </div>
       </header>
 
+      {agent.config.contextStrategy === 'sticky-facts' ? (
+        <section
+          className="border-b border-white/10 px-5 py-3"
+          aria-label="Память facts"
+        >
+          <p className="text-xs font-semibold text-white/70">Память facts</p>
+          {Object.keys(agent.getFacts()).length ? (
+            <dl className="mt-2 grid max-h-32 gap-1 overflow-y-auto text-xs text-white/60">
+              {Object.entries(agent.getFacts()).map(([key, value]) => (
+                <div key={key} className="flex gap-2">
+                  <dt className="font-medium text-white/80">{key}:</dt>
+                  <dd className="min-w-0 break-words">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="mt-1 text-xs text-white/40">Память пока пуста.</p>
+          )}
+        </section>
+      ) : null}
+
+      {agent.config.contextStrategy === 'branching' ? (
+        <section
+          className="flex flex-wrap items-center gap-2 border-b border-white/10 px-5 py-3"
+          aria-label="Ветки диалога"
+        >
+          <GitBranch className="size-4 text-white/50" aria-hidden="true" />
+          <label
+            className="text-xs text-white/60"
+            htmlFor="agent-branch-select"
+          >
+            Ветка
+          </label>
+          <select
+            id="agent-branch-select"
+            value={agent.getActiveBranchId()}
+            disabled={isGenerating}
+            onChange={(event) => agent.switchBranch(event.target.value)}
+            className="rounded-md border border-white/15 bg-neutral-900 px-2 py-1 text-xs text-white"
+          >
+            {agent.getBranches().map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.name}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-white/45">
+            {agent.getCheckpointMessageId()
+              ? 'Checkpoint выбран'
+              : 'Выберите checkpoint у ответа'}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={
+              !agent.getCheckpointMessageId() ||
+              isGenerating ||
+              agent.getBranches().length > 18
+            }
+            onClick={() => agent.createBranches()}
+          >
+            Создать 2 ветки
+          </Button>
+          <p className="w-full text-xs text-white/40">
+            Исходная история остаётся в своей ветке после создания новых.
+          </p>
+        </section>
+      ) : null}
+
       <section className="chat-content" aria-label="История диалога">
         {messages.length === 0 ? (
           <div className="empty-state">
@@ -459,6 +530,23 @@ export function AgentChat({ agent }: { agent: Agent }) {
                     {tokenStats ? (
                       <MessageFooter className="message-tokens">
                         {tokenStats}
+                      </MessageFooter>
+                    ) : null}
+                    {!isUser &&
+                    message.status === 'complete' &&
+                    agent.config.contextStrategy === 'branching' ? (
+                      <MessageFooter>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={isGenerating}
+                          onClick={() => agent.createCheckpoint(message.id)}
+                        >
+                          {agent.getCheckpointMessageId() === message.id
+                            ? '✓ Checkpoint'
+                            : 'Сделать checkpoint'}
+                        </Button>
                       </MessageFooter>
                     ) : null}
                   </MessageContent>

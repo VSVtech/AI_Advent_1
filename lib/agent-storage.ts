@@ -31,10 +31,17 @@ import type {
   ChatOutputFormat,
 } from '@/lib/chat-types';
 import { isContextStrategy, sanitizeFacts } from '@/lib/context-strategy';
+import {
+  MAX_MEMORY_KEY_LENGTH,
+  MAX_SHARED_LONG_TERM_MEMORY_ENTRIES,
+  restoreMemoryEntries,
+  SharedLongTermMemory,
+  type MemoryEntry,
+} from '@/lib/memory-layers';
 
 export const AGENT_SESSIONS_STORAGE_KEY = 'deepseek-chat:agent-sessions:v1';
 
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 const MAX_CONTEXT_SUMMARY_LENGTH = 20_000;
 
 type StorageReader = Pick<Storage, 'getItem'>;
@@ -44,11 +51,13 @@ interface StoredAgentSessions {
   version: typeof STORAGE_VERSION;
   agents: PersistedAgentState[];
   activeAgentId: string | null;
+  longTermMemory: MemoryEntry[];
 }
 
 export interface RestoredAgentSessions {
   agents: Agent[];
   activeAgentId: string | null;
+  longTermMemory: SharedLongTermMemory;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -302,6 +311,8 @@ function restoreBranches(value: unknown): AgentBranch[] | null {
       return null;
     }
     seenIds.add(item.id);
+    const workingMemory = restoreMemoryEntries(item.workingMemory, 'working');
+    const facts = sanitizeFacts(item.facts);
     branches.push({
       id: item.id,
       name: item.name,
@@ -309,6 +320,11 @@ function restoreBranches(value: unknown): AgentBranch[] | null {
         const restored = restoreMessage(message);
         return restored ? [restored] : [];
       }),
+      ...(workingMemory.length ? { workingMemory } : {}),
+      ...(facts ? { facts } : {}),
+      ...(typeof item.memoryCutoffMessageId === 'string'
+        ? { memoryCutoffMessageId: item.memoryCutoffMessageId }
+        : {}),
       ...(typeof item.summary === 'string' &&
       item.summary.trim() &&
       item.summary.length <= MAX_BRANCH_SUMMARY_LENGTH
@@ -319,7 +335,10 @@ function restoreBranches(value: unknown): AgentBranch[] | null {
   return branches;
 }
 
-function restoreAgent(value: unknown): Agent | null {
+function restoreAgent(
+  value: unknown,
+  sharedLongTermMemory: SharedLongTermMemory,
+): Agent | null {
   if (
     !isRecord(value) ||
     typeof value.id !== 'string' ||
@@ -343,6 +362,19 @@ function restoreAgent(value: unknown): Agent | null {
   });
   const contextSummary = restoreContextSummary(value.contextSummary);
   const facts = sanitizeFacts(value.facts) ?? {};
+  const memoryCutoffMessageId =
+    typeof value.memoryCutoffMessageId === 'string'
+      ? value.memoryCutoffMessageId
+      : null;
+  const memoryLayers = isRecord(value.memoryLayers)
+    ? {
+        working: restoreMemoryEntries(value.memoryLayers.working, 'working'),
+        longTerm: restoreMemoryEntries(
+          value.memoryLayers.longTerm,
+          'long-term',
+        ),
+      }
+    : undefined;
   const branches = restoreBranches(value.branches) ?? undefined;
   const activeBranchId =
     typeof value.activeBranchId === 'string' ? value.activeBranchId : undefined;
@@ -351,52 +383,117 @@ function restoreAgent(value: unknown): Agent | null {
       ? value.checkpointMessageId
       : null;
 
-  return new Agent(config, value.name, {
-    id: value.id,
-    createdAt: value.createdAt,
-    messages,
-    contextSummary,
-    facts,
-    branches,
-    activeBranchId,
-    checkpointMessageId,
-  });
+  return new Agent(
+    config,
+    value.name,
+    {
+      id: value.id,
+      createdAt: value.createdAt,
+      messages,
+      contextSummary,
+      facts,
+      memoryCutoffMessageId,
+      memoryLayers,
+      branches,
+      activeBranchId,
+      checkpointMessageId,
+    },
+    sharedLongTermMemory,
+  );
+}
+
+function mergeLegacyLongTermMemory(
+  sources: Array<{ agentName: string; entries: MemoryEntry[] }>,
+): MemoryEntry[] {
+  const merged: MemoryEntry[] = [];
+  for (const { agentName, entries } of sources) {
+    for (const entry of entries) {
+      const sameKey = merged.find(
+        (item) =>
+          item.key.toLocaleLowerCase() === entry.key.toLocaleLowerCase(),
+      );
+      if (sameKey?.value === entry.value && sameKey.kind === entry.kind) {
+        continue;
+      }
+
+      let key = entry.key;
+      if (sameKey) {
+        let sequence = 1;
+        do {
+          const suffix = ` [${agentName.slice(0, 18)}${sequence > 1 ? ` ${sequence}` : ''}]`;
+          key = `${entry.key.slice(0, MAX_MEMORY_KEY_LENGTH - suffix.length)}${suffix}`;
+          sequence += 1;
+        } while (
+          merged.some(
+            (item) => item.key.toLocaleLowerCase() === key.toLocaleLowerCase(),
+          )
+        );
+      }
+      merged.push({ ...entry, id: crypto.randomUUID(), key });
+      if (merged.length === MAX_SHARED_LONG_TERM_MEMORY_ENTRIES) return merged;
+    }
+  }
+  return merged;
 }
 
 export function deserializeAgentSessions(
   rawValue: string | null,
 ): RestoredAgentSessions {
-  if (!rawValue) return { agents: [], activeAgentId: null };
+  const empty = () => ({
+    agents: [],
+    activeAgentId: null,
+    longTermMemory: new SharedLongTermMemory(),
+  });
+  if (!rawValue) return empty();
 
   let value: unknown;
 
   try {
     value = JSON.parse(rawValue);
   } catch {
-    return { agents: [], activeAgentId: null };
+    return empty();
   }
 
   if (
     !isRecord(value) ||
-    value.version !== STORAGE_VERSION ||
+    (value.version !== 1 && value.version !== STORAGE_VERSION) ||
     !Array.isArray(value.agents)
   ) {
-    return { agents: [], activeAgentId: null };
+    return empty();
   }
 
+  const hasSharedMemory =
+    value.version === STORAGE_VERSION && Array.isArray(value.longTermMemory);
+  const longTermMemory = new SharedLongTermMemory(
+    hasSharedMemory ? value.longTermMemory : undefined,
+  );
+  const legacySources: Array<{ agentName: string; entries: MemoryEntry[] }> =
+    [];
   const seenIds = new Set<string>();
   const agents = value.agents.flatMap((storedAgent) => {
-    const agent = restoreAgent(storedAgent);
+    const agent = restoreAgent(storedAgent, longTermMemory);
     if (!agent || seenIds.has(agent.id)) return [];
     seenIds.add(agent.id);
+    if (!hasSharedMemory && isRecord(storedAgent)) {
+      const memoryLayers = storedAgent.memoryLayers;
+      if (isRecord(memoryLayers)) {
+        legacySources.push({
+          agentName: agent.name,
+          entries: restoreMemoryEntries(memoryLayers.longTerm, 'long-term'),
+        });
+      }
+    }
     return [agent];
   });
+  if (!hasSharedMemory) {
+    longTermMemory.restoreEntries(mergeLegacyLongTermMemory(legacySources));
+  }
   const activeAgentId =
     typeof value.activeAgentId === 'string' && seenIds.has(value.activeAgentId)
       ? value.activeAgentId
       : null;
 
-  return { agents, activeAgentId };
+  return { agents, activeAgentId, longTermMemory };
 }
 
 export function loadAgentSessions(
@@ -407,7 +504,11 @@ export function loadAgentSessions(
       storage.getItem(AGENT_SESSIONS_STORAGE_KEY),
     );
   } catch {
-    return { agents: [], activeAgentId: null };
+    return {
+      agents: [],
+      activeAgentId: null,
+      longTermMemory: new SharedLongTermMemory(),
+    };
   }
 }
 
@@ -415,6 +516,7 @@ export function saveAgentSessions(
   storage: StorageWriter,
   agents: Agent[],
   activeAgentId: string | null,
+  sharedLongTermMemory?: SharedLongTermMemory,
 ): boolean {
   const value: StoredAgentSessions = {
     version: STORAGE_VERSION,
@@ -423,6 +525,10 @@ export function saveAgentSessions(
       activeAgentId && agents.some((agent) => agent.id === activeAgentId)
         ? activeAgentId
         : null,
+    longTermMemory:
+      sharedLongTermMemory?.getEntries() ??
+      agents[0]?.getMemoryLayers().longTerm ??
+      [],
   };
 
   try {

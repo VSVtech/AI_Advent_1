@@ -30,7 +30,10 @@ describe('включение системного промпта', () => {
     expect(markup).not.toContain('id="use-selector-system-prompt"');
     expect(markup).not.toContain('id="system-prompt-error"');
     expect(markup).not.toContain(defaultProps.value);
-    expect(markup).toContain('Системный промпт не отправляется.');
+    expect(markup).toContain(
+      'Дополнительный системный промпт не отправляется.',
+    );
+    expect(markup).toContain('долговременная память не пуста');
   });
 
   it('возвращает прежнее содержимое после включения', () => {

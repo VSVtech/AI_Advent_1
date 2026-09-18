@@ -18,7 +18,6 @@ import type {
   FileUploadResponsePayload,
 } from '@/lib/chat-types';
 import {
-  buildFactsPrompt,
   RECENT_CONTEXT_MESSAGE_LIMIT,
   sanitizeFacts,
   type ContextStrategy,
@@ -31,6 +30,19 @@ import {
   validateAttachmentFiles,
 } from '@/lib/file-attachments';
 import { readChatStream } from '@/lib/read-chat-stream';
+import { MemoryCurator } from '@/lib/memory-curator';
+import {
+  buildSessionMemoryMessage,
+  MAX_MEMORY_ENTRIES_PER_LAYER,
+  normalizeMemoryInput,
+  restoreMemoryEntries,
+  SharedLongTermMemory,
+  type EditableMemoryLayer,
+  type EditableMemoryLayers,
+  type SessionMemoryLayers,
+  type LongTermMemoryKind,
+  type MemoryEntry,
+} from '@/lib/memory-layers';
 
 export interface AgentConfig {
   model: string;
@@ -68,6 +80,13 @@ export interface AgentBranch {
   name: string;
   messages: ChatMessage[];
   summary?: string;
+  workingMemory?: MemoryEntry[];
+  facts?: MemoryFacts;
+  memoryCutoffMessageId?: string | null;
+}
+
+export interface AgentMemorySnapshot extends EditableMemoryLayers {
+  shortTerm: MemoryFacts;
 }
 
 export interface PersistedAgentState {
@@ -76,7 +95,10 @@ export interface PersistedAgentState {
   config: AgentConfig;
   createdAt: number;
   messages: ChatMessage[];
+  // longTerm is read only when migrating sessions written before memory became shared.
+  memoryLayers?: { working: MemoryEntry[]; longTerm?: MemoryEntry[] };
   facts?: MemoryFacts;
+  memoryCutoffMessageId?: string | null;
   branches?: AgentBranch[];
   activeBranchId?: string;
   checkpointMessageId?: string | null;
@@ -92,6 +114,8 @@ type RestoredAgentState = Pick<
     Pick<
       PersistedAgentState,
       | 'facts'
+      | 'memoryCutoffMessageId'
+      | 'memoryLayers'
       | 'branches'
       | 'activeBranchId'
       | 'checkpointMessageId'
@@ -166,7 +190,7 @@ function toApiMessages(messages: ChatMessage[]): ApiChatMessage[] {
 
 function toContextApiMessages(
   strategy: ContextStrategy,
-  facts: MemoryFacts,
+  memory: SessionMemoryLayers,
   messages: ChatMessage[],
   branchSummary?: string,
 ): ApiChatMessage[] {
@@ -175,8 +199,9 @@ function toContextApiMessages(
       ? messages.slice(-RECENT_CONTEXT_MESSAGE_LIMIT)
       : messages;
   const apiMessages = toApiMessages(recentMessages);
+  let contextMessages = apiMessages;
   if (strategy === 'branching' && branchSummary) {
-    return [
+    contextMessages = [
       {
         role: 'assistant',
         content: `Сводка объединённых веток (память для продолжения диалога):\n${branchSummary}`,
@@ -184,16 +209,8 @@ function toContextApiMessages(
       ...apiMessages,
     ];
   }
-  if (strategy !== 'sticky-facts' || Object.keys(facts).length === 0) {
-    return apiMessages;
-  }
-  return [
-    {
-      role: 'assistant',
-      content: `Память агента (facts):\n${JSON.stringify(facts)}`,
-    },
-    ...apiMessages,
-  ];
+  const memoryMessage = buildSessionMemoryMessage(memory);
+  return memoryMessage ? [memoryMessage, ...contextMessages] : contextMessages;
 }
 
 function dialogueTranscript(messages: ChatMessage[]): string {
@@ -224,6 +241,7 @@ function dialogueTranscript(messages: ChatMessage[]): string {
 function buildBranchSummaryPrompt(
   branchName: string,
   previousSummary: string | null,
+  workingMemory: MemoryEntry[],
   messages: ChatMessage[],
 ): string {
   return [
@@ -233,6 +251,11 @@ function buildBranchSummaryPrompt(
     previousSummary
       ? `Предыдущая сводка этой ветки:\n${previousSummary}`
       : 'Предыдущей сводки нет.',
+    workingMemory.length
+      ? `Явно сохранённая рабочая память этой ветки:\n${JSON.stringify(
+          workingMemory.map(({ key, value }) => ({ key, value })),
+        )}`
+      : 'Рабочая память этой ветки пуста.',
     messages.length
       ? `Новые сообщения этой ветки:\n${dialogueTranscript(messages)}`
       : 'В этой ветке пока нет новых сообщений.',
@@ -288,7 +311,14 @@ export class Agent {
   readonly createdAt: number;
 
   private messages: ChatMessage[] = [];
+  private workingMemory: MemoryEntry[] = [];
+  private readonly longTermMemory: SharedLongTermMemory;
+  private readonly unsubscribeLongTermMemory: () => void;
+  private readonly memoryCurator = new MemoryCurator();
   private facts: MemoryFacts = {};
+  private memoryCutoffMessageId: string | null = null;
+  private isAnalyzingMemory = false;
+  private memoryError: string | null = null;
   private branches: AgentBranch[] = [];
   private activeBranchId = 'main';
   private checkpointMessageId: string | null = null;
@@ -303,6 +333,7 @@ export class Agent {
     config: AgentConfig,
     name?: string,
     restoredState?: RestoredAgentState,
+    sharedLongTermMemory?: SharedLongTermMemory,
   ) {
     this.id = restoredState?.id ?? createId();
     this.config = { ...config };
@@ -310,7 +341,21 @@ export class Agent {
     this.name = name?.trim() || `Агент · ${formatModelLabel(config.model)}`;
     this.messages =
       restoredState?.messages.map((message) => cloneMessage(message)) ?? [];
+    this.workingMemory = restoreMemoryEntries(
+      restoredState?.memoryLayers?.working,
+      'working',
+    );
+    this.longTermMemory =
+      sharedLongTermMemory ??
+      new SharedLongTermMemory(restoredState?.memoryLayers?.longTerm);
     this.facts = sanitizeFacts(restoredState?.facts) ?? {};
+    this.memoryCutoffMessageId =
+      restoredState?.memoryCutoffMessageId &&
+      this.messages.some(
+        (message) => message.id === restoredState.memoryCutoffMessageId,
+      )
+        ? restoredState.memoryCutoffMessageId
+        : null;
     if (
       config.contextStrategy === 'sticky-facts' &&
       restoredState?.contextSummary?.content &&
@@ -327,9 +372,37 @@ export class Agent {
             id: branch.id,
             name: branch.name,
             messages: branch.messages.map(cloneMessage),
+            workingMemory: restoreMemoryEntries(
+              branch.workingMemory,
+              'working',
+            ),
+            facts:
+              branch.facts === undefined &&
+              branch.id === restoredState.activeBranchId
+                ? { ...this.facts }
+                : (sanitizeFacts(branch.facts) ?? {}),
+            memoryCutoffMessageId:
+              branch.memoryCutoffMessageId &&
+              branch.messages.some(
+                (message) => message.id === branch.memoryCutoffMessageId,
+              )
+                ? branch.memoryCutoffMessageId
+                : branch.memoryCutoffMessageId === undefined &&
+                    branch.id === restoredState.activeBranchId
+                  ? this.memoryCutoffMessageId
+                  : null,
             ...(branch.summary ? { summary: branch.summary } : {}),
           }))
-        : [{ id: 'main', name: 'Основная', messages: this.messages }];
+        : [
+            {
+              id: 'main',
+              name: 'Основная',
+              messages: this.messages,
+              workingMemory: this.workingMemory,
+              facts: { ...this.facts },
+              memoryCutoffMessageId: this.memoryCutoffMessageId,
+            },
+          ];
       this.activeBranchId = this.branches.some(
         (branch) => branch.id === restoredState?.activeBranchId,
       )
@@ -338,6 +411,16 @@ export class Agent {
       this.messages = this.branches.find(
         (branch) => branch.id === this.activeBranchId,
       )!.messages;
+      this.workingMemory =
+        this.branches.find((branch) => branch.id === this.activeBranchId)!
+          .workingMemory ?? [];
+      this.facts = {
+        ...(this.branches.find((branch) => branch.id === this.activeBranchId)!
+          .facts ?? this.facts),
+      };
+      this.memoryCutoffMessageId =
+        this.branches.find((branch) => branch.id === this.activeBranchId)
+          ?.memoryCutoffMessageId ?? null;
       this.checkpointMessageId =
         restoredState?.checkpointMessageId &&
         this.messages.some(
@@ -351,6 +434,9 @@ export class Agent {
       isGenerating: false,
       error: null,
     };
+    this.unsubscribeLongTermMemory = this.longTermMemory.subscribe(() =>
+      this.notify(),
+    );
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -364,6 +450,103 @@ export class Agent {
 
   getFacts(): MemoryFacts {
     return { ...this.facts };
+  }
+
+  getMemoryAnalysisStatus(): { analyzing: boolean; error: string | null } {
+    return { analyzing: this.isAnalyzingMemory, error: this.memoryError };
+  }
+
+  getMemoryLayers(): AgentMemorySnapshot {
+    return {
+      shortTerm: { ...this.facts },
+      working: this.workingMemory.map((entry) => ({ ...entry })),
+      longTerm: this.longTermMemory.getEntries(),
+    };
+  }
+
+  private stopReanalyzingOldMessages(): void {
+    this.memoryCutoffMessageId = this.messages.at(-1)?.id ?? null;
+  }
+
+  deleteShortTermFact(key: string): boolean {
+    if (this.isGenerating || !Object.hasOwn(this.facts, key)) return false;
+    const updated = { ...this.facts };
+    delete updated[key];
+    this.facts = updated;
+    this.stopReanalyzingOldMessages();
+    this.notify();
+    return true;
+  }
+
+  promoteShortTermFact(key: string, kind: LongTermMemoryKind): boolean {
+    if (this.isGenerating || !Object.hasOwn(this.facts, key)) return false;
+    const value = this.facts[key];
+    // Do not remove the source until the shared store accepts the entry.
+    if (!this.longTermMemory.saveEntry(key, value, kind)) return false;
+    const updated = { ...this.facts };
+    delete updated[key];
+    this.facts = updated;
+    this.stopReanalyzingOldMessages();
+    this.notify();
+    return true;
+  }
+
+  saveMemoryEntry(
+    layer: EditableMemoryLayer,
+    key: string,
+    value: string,
+    kind?: LongTermMemoryKind,
+  ): boolean {
+    if (this.isGenerating) return false;
+    if (layer === 'long-term') {
+      return this.longTermMemory.saveEntry(key, value, kind);
+    }
+    const normalized = normalizeMemoryInput(layer, key, value, kind);
+    if (!normalized) return false;
+
+    const entries = this.workingMemory;
+    const existingIndex = entries.findIndex(
+      (entry) =>
+        entry.key.toLocaleLowerCase() === normalized.key.toLocaleLowerCase(),
+    );
+    if (existingIndex < 0 && entries.length >= MAX_MEMORY_ENTRIES_PER_LAYER) {
+      return false;
+    }
+    const nextEntry: MemoryEntry = {
+      id: existingIndex < 0 ? createId() : entries[existingIndex].id,
+      ...normalized,
+      updatedAt: Date.now(),
+    };
+    const updated =
+      existingIndex < 0
+        ? [...entries, nextEntry]
+        : entries.map((entry, index) =>
+            index === existingIndex ? nextEntry : entry,
+          );
+    this.workingMemory = updated;
+    this.notify();
+    return true;
+  }
+
+  deleteMemoryEntry(layer: EditableMemoryLayer, id: string): boolean {
+    if (this.isGenerating || (layer !== 'working' && layer !== 'long-term')) {
+      return false;
+    }
+    if (layer === 'long-term') {
+      const deleted = this.longTermMemory.deleteEntry(id);
+      if (deleted) {
+        this.stopReanalyzingOldMessages();
+        this.notify();
+      }
+      return deleted;
+    }
+    const entries = this.workingMemory;
+    const updated = entries.filter((entry) => entry.id !== id);
+    if (updated.length === entries.length) return false;
+    this.workingMemory = updated;
+    this.stopReanalyzingOldMessages();
+    this.notify();
+    return true;
   }
 
   getBranches(): Array<Pick<AgentBranch, 'id' | 'name'>> {
@@ -423,6 +606,13 @@ export class Agent {
     if (this.checkpointMessageId && checkpointIndex < 0) return null;
 
     const prefix = this.messages.slice(0, checkpointIndex + 1);
+    const inheritedFacts =
+      checkpointIndex === this.messages.length - 1 ? { ...this.facts } : {};
+    const inheritedCutoff = prefix.some(
+      (message) => message.id === this.memoryCutoffMessageId,
+    )
+      ? this.memoryCutoffMessageId
+      : null;
     const inheritedSummary = this.getActiveBranchSummary();
     const number = this.branches.length;
     const first = createId();
@@ -432,17 +622,27 @@ export class Agent {
         id: first,
         name: `Ветка ${number}`,
         messages: prefix.map(cloneMessage),
+        workingMemory: this.workingMemory.map((entry) => ({ ...entry })),
+        facts: { ...inheritedFacts },
+        memoryCutoffMessageId: inheritedCutoff,
         ...(inheritedSummary ? { summary: inheritedSummary } : {}),
       },
       {
         id: second,
         name: `Ветка ${number + 1}`,
         messages: prefix.map(cloneMessage),
+        workingMemory: this.workingMemory.map((entry) => ({ ...entry })),
+        facts: { ...inheritedFacts },
+        memoryCutoffMessageId: inheritedCutoff,
         ...(inheritedSummary ? { summary: inheritedSummary } : {}),
       },
     );
     this.activeBranchId = first;
     this.messages = this.branches[this.branches.length - 2].messages;
+    this.workingMemory =
+      this.branches[this.branches.length - 2].workingMemory ?? [];
+    this.facts = { ...inheritedFacts };
+    this.memoryCutoffMessageId = inheritedCutoff;
     this.checkpointMessageId = null;
     this.error = null;
     this.notify();
@@ -457,6 +657,9 @@ export class Agent {
     if (!branch) return false;
     this.activeBranchId = branchId;
     this.messages = branch.messages;
+    this.workingMemory = branch.workingMemory ?? [];
+    this.facts = { ...branch.facts };
+    this.memoryCutoffMessageId = branch.memoryCutoffMessageId ?? null;
     this.checkpointMessageId = null;
     this.error = null;
     this.notify();
@@ -515,9 +718,15 @@ export class Agent {
         name: `Слияние ${first.name} + ${second.name}`.slice(0, 80),
         messages: [],
         summary,
+        workingMemory: [],
+        facts: {},
+        memoryCutoffMessageId: null,
       });
       this.activeBranchId = id;
       this.messages = [];
+      this.workingMemory = [];
+      this.facts = {};
+      this.memoryCutoffMessageId = null;
       this.checkpointMessageId = null;
       this.notify();
       return id;
@@ -545,12 +754,29 @@ export class Agent {
       config: { ...this.config },
       createdAt: this.createdAt,
       messages: this.messages.map((message) => cloneMessage(message)),
+      ...(this.workingMemory.length
+        ? {
+            memoryLayers: {
+              working: this.workingMemory.map((entry) => ({ ...entry })),
+            },
+          }
+        : {}),
       facts: { ...this.facts },
+      memoryCutoffMessageId: this.memoryCutoffMessageId,
       branches: this.branches.map((branch) => ({
         id: branch.id,
         name: branch.name,
         messages: branch.messages.map(cloneMessage),
+        ...(branch.workingMemory?.length
+          ? {
+              workingMemory: branch.workingMemory.map((entry) => ({
+                ...entry,
+              })),
+            }
+          : {}),
         ...(branch.summary ? { summary: branch.summary } : {}),
+        facts: { ...branch.facts },
+        memoryCutoffMessageId: branch.memoryCutoffMessageId ?? null,
       })),
       activeBranchId: this.activeBranchId,
       checkpointMessageId: this.checkpointMessageId,
@@ -562,7 +788,12 @@ export class Agent {
     const activeBranch = this.branches.find(
       (branch) => branch.id === this.activeBranchId,
     );
-    if (activeBranch) activeBranch.messages = this.messages;
+    if (activeBranch) {
+      activeBranch.messages = this.messages;
+      activeBranch.workingMemory = this.workingMemory;
+      activeBranch.facts = { ...this.facts };
+      activeBranch.memoryCutoffMessageId = this.memoryCutoffMessageId;
+    }
     this.snapshot = {
       messages: this.messages,
       isGenerating: this.isGenerating,
@@ -611,75 +842,50 @@ export class Agent {
     const consequence = nextRequestBlocked
       ? 'Новый запрос не отправлен.'
       : 'Ответ получен, но следующий запрос будет заблокирован.';
-    return `Контекст ${state}: DeepSeek насчитал ${exactContextTokens.toLocaleString('ru-RU')} входных токенов при лимите агента ${this.config.contextWindowTokens.toLocaleString('ru-RU')}. ${consequence} Увеличьте лимит или очистите историю.`;
+    return `Контекст ${state}: DeepSeek насчитал ${exactContextTokens.toLocaleString('ru-RU')} входных токенов при лимите агента ${this.config.contextWindowTokens.toLocaleString('ru-RU')}. ${consequence} Увеличьте лимит или сократите историю и память.`;
   }
 
-  private async updateFacts(signal: AbortSignal): Promise<void> {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [
-          {
-            role: 'user',
-            content: buildFactsPrompt(
-              this.facts,
-              dialogueTranscript(
-                this.messages
-                  .filter((message) => message.content.trim())
-                  .slice(-RECENT_CONTEXT_MESSAGE_LIMIT),
-              ),
-            ),
-          },
-        ],
-        format: 'json',
-        contextWindowTokens: this.config.contextWindowTokens,
-        targetOutputTokens: 500,
-        temperature: 0.2,
-        model: this.config.model,
-        useSystemPrompt: false,
-        useSelectorSystemPrompt: true,
-      } satisfies ChatRequest),
-      signal,
-    });
-
-    if (!response.ok) {
-      const payload = (await response
-        .json()
-        .catch(() => null)) as ChatErrorPayload | null;
-      throw new Error(payload?.error.message ?? 'Не удалось обновить facts.');
-    }
-
-    if (!response.body) {
-      throw new Error('DeepSeek вернул пустой ответ при обновлении facts.');
-    }
-
-    let content = '';
-    let completed = false;
-
-    await readChatStream(response.body, (event: ChatStreamEvent) => {
-      if (event.type === 'delta') {
-        content += event.content;
-      } else if (event.type === 'done') {
-        completed = true;
-      } else if (event.type === 'error') {
-        throw new Error(event.message);
-      }
-    });
-
-    if (!completed || !content.trim()) {
-      throw new Error('DeepSeek не смог обновить facts.');
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(content);
-    } catch {
-      throw new Error('DeepSeek вернул некорректный JSON для facts.');
-    }
-    const facts = sanitizeFacts(parsed);
-    if (!facts) throw new Error('DeepSeek вернул некорректные facts.');
-    this.facts = facts;
+  private async updateMemory(signal: AbortSignal): Promise<void> {
+    this.isAnalyzingMemory = true;
+    this.memoryError = null;
     this.notify();
+    try {
+      const cutoffIndex = this.memoryCutoffMessageId
+        ? this.messages.findIndex(
+            (message) => message.id === this.memoryCutoffMessageId,
+          )
+        : -1;
+      const result = await this.memoryCurator.analyze({
+        shortTerm: this.facts,
+        longTerm: this.longTermMemory.getEntries(),
+        recentDialogue: dialogueTranscript(
+          this.messages
+            .slice(cutoffIndex + 1)
+            .filter((message) => message.content.trim())
+            .slice(-RECENT_CONTEXT_MESSAGE_LIMIT),
+        ),
+        signal,
+      });
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      this.facts = result.shortTerm;
+      for (const entry of result.longTerm) {
+        this.longTermMemory.saveEntry(entry.key, entry.value, entry.kind);
+      }
+      this.notify();
+    } catch (caughtError) {
+      // Memory enrichment is auxiliary: preserve existing facts and still
+      // answer the user when this separate LLM call fails.
+      if (!signal.aborted) {
+        this.memoryError =
+          caughtError instanceof Error
+            ? caughtError.message
+            : 'Не удалось обновить память.';
+        this.notify();
+      }
+    } finally {
+      this.isAnalyzingMemory = false;
+      this.notify();
+    }
   }
 
   private async requestTextSummary(
@@ -748,7 +954,12 @@ export class Agent {
     let summary = branch.summary ?? null;
     if (branch.messages.length === 0) {
       return this.requestTextSummary(
-        buildBranchSummaryPrompt(branch.name, summary, []),
+        buildBranchSummaryPrompt(
+          branch.name,
+          summary,
+          branch.workingMemory ?? [],
+          [],
+        ),
         signal,
       );
     }
@@ -761,6 +972,7 @@ export class Agent {
       let prompt = buildBranchSummaryPrompt(
         branch.name,
         summary,
+        branch.workingMemory ?? [],
         branch.messages.slice(offset, end),
       );
       while (
@@ -771,6 +983,7 @@ export class Agent {
         prompt = buildBranchSummaryPrompt(
           branch.name,
           summary,
+          branch.workingMemory ?? [],
           branch.messages.slice(offset, end),
         );
       }
@@ -927,21 +1140,34 @@ export class Agent {
       this.messages = [...this.messages, userMessage, assistantMessage];
       this.notify();
 
-      if (this.config.contextStrategy === 'sticky-facts') {
-        await this.updateFacts(controller.signal);
+      await this.updateMemory(controller.signal);
+      if (controller.signal.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
       }
       const requestMessages = toContextApiMessages(
         this.config.contextStrategy,
-        this.facts,
+        {
+          // Sliding Window deliberately discards older dialogue context;
+          // Sticky Facts is the ten-message strategy that also sends facts.
+          shortTerm:
+            this.config.contextStrategy === 'sliding-window' ? {} : this.facts,
+          working: this.workingMemory,
+        },
         this.messages.filter((message) => message.id !== assistantMessage.id),
         this.getActiveBranchSummary() ?? undefined,
       );
+      const longTermMemory = this.longTermMemory
+        .getEntries()
+        .flatMap(({ key, value, kind }) =>
+          kind ? [{ key, value, kind }] : [],
+        );
 
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: requestMessages,
+          ...(longTermMemory.length ? { longTermMemory } : {}),
           format: this.config.outputFormat,
           contextWindowTokens: this.config.contextWindowTokens,
           targetOutputTokens: this.config.targetOutputTokens,
@@ -1050,9 +1276,19 @@ export class Agent {
     this.abortController?.abort();
     this.messages = [];
     this.facts = {};
+    this.memoryCutoffMessageId = null;
     this.branches =
       this.config.contextStrategy === 'branching'
-        ? [{ id: 'main', name: 'Основная', messages: [] }]
+        ? [
+            {
+              id: 'main',
+              name: 'Основная',
+              messages: [],
+              workingMemory: this.workingMemory,
+              facts: {},
+              memoryCutoffMessageId: null,
+            },
+          ]
         : [];
     this.activeBranchId = 'main';
     this.checkpointMessageId = null;
@@ -1062,6 +1298,7 @@ export class Agent {
 
   dispose(): void {
     this.abortController?.abort();
+    this.unsubscribeLongTermMemory();
     this.listeners.clear();
   }
 }

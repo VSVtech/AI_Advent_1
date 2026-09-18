@@ -30,6 +30,29 @@ function config(overrides: Partial<AgentConfig> = {}): AgentConfig {
   return { ...createDefaultAgentConfig(), ...overrides };
 }
 
+function stubFetchWithMemory(
+  handler: (url: string, init: RequestInit) => Promise<Response>,
+): void {
+  vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+    if (url === '/api/chat') {
+      const request = JSON.parse(init.body as string) as ChatRequest;
+      const content = request.messages[0]?.content;
+      if (
+        typeof content === 'string' &&
+        content.startsWith('Ты отдельный агент управления памятью')
+      ) {
+        return Promise.resolve(
+          sseResponse([
+            `event: delta\ndata: ${JSON.stringify({ content: '{"shortTerm":{},"longTerm":[]}' })}\n\n`,
+            'event: done\ndata: {"finishReason":"stop"}\n\n',
+          ]),
+        );
+      }
+    }
+    return handler(url, init);
+  });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -59,7 +82,7 @@ describe('Agent', () => {
       .mockResolvedValue(
         sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
       );
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetchWithMemory(fetchMock);
 
     const agent = new Agent(
       config({
@@ -96,7 +119,7 @@ describe('Agent', () => {
       .mockResolvedValue(
         sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
       );
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetchWithMemory(fetchMock);
 
     const agent = new Agent(config({ targetOutputTokens: null }));
     await agent.sendMessage('Привет');
@@ -112,7 +135,7 @@ describe('Agent', () => {
       .mockResolvedValue(
         sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
       );
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetchWithMemory(fetchMock);
 
     const agent = new Agent(config());
     const file = new File(['Ключ: 42'], 'notes.txt', { type: 'text/plain' });
@@ -165,7 +188,7 @@ describe('Agent', () => {
         sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetchWithMemory(fetchMock);
 
     const agent = new Agent(config());
     const file = new File(['image'], 'picture.png', { type: 'image/png' });
@@ -198,7 +221,7 @@ describe('Agent', () => {
 
   it('не отправляет изображение моделью без поддержки vision', async () => {
     const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetchWithMemory(fetchMock);
     const agent = new Agent(config({ model: 'deepseek-v4-pro' }));
 
     await agent.sendMessage('Что на картинке?', [
@@ -216,7 +239,7 @@ describe('Agent', () => {
       .mockResolvedValue(
         sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
       );
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetchWithMemory(fetchMock);
 
     const agent = new Agent(config());
 
@@ -231,8 +254,7 @@ describe('Agent', () => {
   });
 
   it('накапливает дельты и сохраняет число выходных токенов по завершении', async () => {
-    vi.stubGlobal(
-      'fetch',
+    stubFetchWithMemory(
       vi
         .fn()
         .mockResolvedValue(
@@ -273,8 +295,7 @@ describe('Agent', () => {
   });
 
   it('сохраняет точное число входных токенов (истории) и кэшированных из события done', async () => {
-    vi.stubGlobal(
-      'fetch',
+    stubFetchWithMemory(
       vi
         .fn()
         .mockResolvedValue(
@@ -306,7 +327,7 @@ describe('Agent', () => {
           'event: done\ndata: {"finishReason":"stop","outputTokens":5,"inputTokens":120}\n\n',
         ]),
       );
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetchWithMemory(fetchMock);
 
     const agent = new Agent(config({ contextWindowTokens: 100 }));
     await agent.sendMessage('Первый запрос');
@@ -372,12 +393,12 @@ describe('Agent', () => {
       const firstContent = request.messages[0]?.content;
       const isFactsRequest =
         typeof firstContent === 'string' &&
-        firstContent.startsWith('Обнови память агента');
+        firstContent.startsWith('Ты отдельный агент управления памятью');
 
       return Promise.resolve(
         isFactsRequest
           ? sseResponse([
-              `event: delta\ndata: ${JSON.stringify({ content: '{"имя":"Виктор","цель":"Собрать ТЗ"}' })}\n\n`,
+              `event: delta\ndata: ${JSON.stringify({ content: '{"shortTerm":{"имя":"Виктор","цель":"Собрать ТЗ"},"longTerm":[]}' })}\n\n`,
               'event: done\ndata: {"finishReason":"stop"}\n\n',
             ])
           : sseResponse([
@@ -447,7 +468,7 @@ describe('Agent', () => {
         ]),
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetchWithMemory(fetchMock);
 
     const messages: ChatMessage[] = Array.from(
       { length: RECENT_CONTEXT_MESSAGE_LIMIT },
@@ -489,8 +510,7 @@ describe('Agent', () => {
   });
 
   it('не добавляет поля контекстных токенов, если событие done их не содержит', async () => {
-    vi.stubGlobal(
-      'fetch',
+    stubFetchWithMemory(
       vi
         .fn()
         .mockResolvedValue(
@@ -508,8 +528,7 @@ describe('Agent', () => {
   });
 
   it('уведомляет подписчиков на каждое изменение состояния', async () => {
-    vi.stubGlobal(
-      'fetch',
+    stubFetchWithMemory(
       vi
         .fn()
         .mockResolvedValue(
@@ -532,8 +551,7 @@ describe('Agent', () => {
 
   it('помечает ответ как остановленный при вызове stop()', async () => {
     let resolveFetch: (response: Response) => void = () => {};
-    vi.stubGlobal(
-      'fetch',
+    stubFetchWithMemory(
       vi.fn().mockImplementation(
         (_url: string, init: RequestInit) =>
           new Promise<Response>((resolve, reject) => {
@@ -577,8 +595,7 @@ describe('Agent', () => {
       },
     });
 
-    vi.stubGlobal(
-      'fetch',
+    stubFetchWithMemory(
       vi.fn().mockImplementation(
         (_url: string, init: RequestInit) =>
           new Promise<Response>((resolve, reject) => {
@@ -618,10 +635,7 @@ describe('Agent', () => {
   });
 
   it('переводит сетевую ошибку в сообщение об ошибке и удаляет пустой ответ', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockRejectedValue(new Error('network down')),
-    );
+    stubFetchWithMemory(vi.fn().mockRejectedValue(new Error('network down')));
 
     const agent = new Agent(config());
     await agent.sendMessage('Привет');
@@ -634,8 +648,7 @@ describe('Agent', () => {
   });
 
   it('переводит ошибку API (не ok) в понятное сообщение', async () => {
-    vi.stubGlobal(
-      'fetch',
+    stubFetchWithMemory(
       vi.fn().mockResolvedValue(
         Response.json(
           {
@@ -653,7 +666,7 @@ describe('Agent', () => {
   });
 
   it('clearHistory() очищает сообщения и ошибку и прерывает активный запрос', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('boom')));
+    stubFetchWithMemory(vi.fn().mockRejectedValue(new Error('boom')));
 
     const agent = new Agent(config());
     await agent.sendMessage('Привет');
@@ -676,7 +689,7 @@ describe('Agent', () => {
           });
         }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    stubFetchWithMemory(fetchMock);
 
     const agent = new Agent(config());
     const listener = vi.fn();

@@ -1,3 +1,5 @@
+import type { LongTermMemoryFact } from '@/lib/memory-layers';
+
 export type ChatRole = 'user' | 'assistant';
 
 export type ChatMessageStatus = 'streaming' | 'complete' | 'stopped' | 'error';
@@ -49,6 +51,8 @@ export interface ApiChatMessage {
 
 export interface ChatRequest {
   messages: ApiChatMessage[];
+  // Structured shared memory is converted to system instructions by the API.
+  longTermMemory?: LongTermMemoryFact[];
   format?: ChatOutputFormat;
   // Artificial input-context window used to reproduce overflow with models
   // whose real context window is impractically large for a demo.

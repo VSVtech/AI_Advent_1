@@ -8,6 +8,7 @@ import { AgentSetup } from '@/components/agent-setup';
 import { AgentSidebar } from '@/components/agent-sidebar';
 import { Agent, type AgentConfig } from '@/lib/agent';
 import { loadAgentSessions, saveAgentSessions } from '@/lib/agent-storage';
+import { SharedLongTermMemory } from '@/lib/memory-layers';
 
 type View = 'empty' | 'setup' | 'chat';
 
@@ -17,10 +18,12 @@ export default function Home() {
   const [view, setView] = useState<View>('empty');
   const [hasRestoredSessions, setHasRestoredSessions] = useState(false);
   const agentsRef = useRef<Agent[]>(agents);
+  const longTermMemoryRef = useRef(new SharedLongTermMemory());
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       const restored = loadAgentSessions(window.localStorage);
+      longTermMemoryRef.current = restored.longTermMemory;
       setAgents(restored.agents);
       setActiveAgentId(restored.activeAgentId);
       setView(restored.activeAgentId ? 'chat' : 'empty');
@@ -37,7 +40,12 @@ export default function Home() {
     const persist = () => {
       if (timeoutId !== null) window.clearTimeout(timeoutId);
       timeoutId = null;
-      saveAgentSessions(window.localStorage, agents, activeAgentId);
+      saveAgentSessions(
+        window.localStorage,
+        agents,
+        activeAgentId,
+        longTermMemoryRef.current,
+      );
     };
     const schedulePersist = () => {
       if (timeoutId !== null) window.clearTimeout(timeoutId);
@@ -46,6 +54,8 @@ export default function Home() {
     const unsubscribers = agents.map((agent) =>
       agent.subscribe(schedulePersist),
     );
+    const unsubscribeMemory =
+      longTermMemoryRef.current.subscribe(schedulePersist);
 
     persist();
     window.addEventListener('pagehide', persist);
@@ -53,6 +63,7 @@ export default function Home() {
     return () => {
       persist();
       window.removeEventListener('pagehide', persist);
+      unsubscribeMemory();
       for (const unsubscribe of unsubscribers) unsubscribe();
     };
   }, [activeAgentId, agents, hasRestoredSessions]);
@@ -74,7 +85,7 @@ export default function Home() {
     agents.find((agent) => agent.id === activeAgentId) ?? null;
 
   const handleCreate = (config: AgentConfig, name: string) => {
-    const agent = new Agent(config, name);
+    const agent = new Agent(config, name, undefined, longTermMemoryRef.current);
     setAgents((current) => [...current, agent]);
     setActiveAgentId(agent.id);
     setView('chat');

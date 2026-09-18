@@ -25,6 +25,11 @@ import {
 } from 'react';
 
 import { MarkdownMessage } from '@/components/markdown-message';
+import { AgentMemoryDialog } from '@/components/agent-memory-dialog';
+import {
+  AgentMemoryPanel,
+  AgentMemoryPanelSheet,
+} from '@/components/agent-memory-panel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Attachment,
@@ -338,462 +343,454 @@ export function AgentChat({ agent }: { agent: Agent }) {
   };
 
   return (
-    <div className="chat-frame">
-      <header className="chat-header">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="brand-mark shrink-0" aria-hidden="true">
-            <Sparkles className="size-[18px]" />
-          </span>
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-white">
-              {agent.name}
-            </h1>
-            <p className="truncate text-xs text-white/40">
-              Температура {agent.config.temperature} · формат{' '}
-              {agent.config.outputFormat.toUpperCase()} · цель{' '}
-              {agent.config.targetOutputTokens === null
-                ? 'без ограничения'
-                : `${agent.config.targetOutputTokens} ток.`}{' '}
-              · окно {agent.config.contextWindowTokens} ток.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <Badge className="model-badge" variant="outline">
-            <span className="status-dot" aria-hidden="true" />
-            <span className="hidden sm:inline">
-              {formatModelLabel(agent.config.model)}
+    <div className="chat-workspace">
+      <div className="chat-frame">
+        <header className="chat-header">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="brand-mark shrink-0" aria-hidden="true">
+              <Sparkles className="size-[18px]" />
             </span>
-          </Badge>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="header-action"
-            aria-label="Очистить историю диалога"
-            disabled={messages.length === 0}
-            onClick={() => agent.clearHistory()}
-          >
-            <Trash2 />
-          </Button>
-        </div>
-      </header>
-
-      {agent.config.contextStrategy === 'sticky-facts' ? (
-        <section
-          className="shrink-0 border-b border-white/10 px-5 py-3"
-          aria-label="Память facts"
-        >
-          <p className="text-xs font-semibold text-white/70">Память facts</p>
-          {Object.keys(agent.getFacts()).length ? (
-            <dl className="mt-2 grid max-h-32 gap-1 overflow-y-auto text-xs text-white/60">
-              {Object.entries(agent.getFacts()).map(([key, value]) => (
-                <div key={key} className="flex gap-2">
-                  <dt className="font-medium text-white/80">{key}:</dt>
-                  <dd className="min-w-0 break-words">{value}</dd>
-                </div>
-              ))}
-            </dl>
-          ) : (
-            <p className="mt-1 text-xs text-white/40">Память пока пуста.</p>
-          )}
-        </section>
-      ) : null}
-
-      {agent.config.contextStrategy === 'branching' ? (
-        <section
-          className="max-h-[min(30dvh,18rem)] shrink-0 overflow-y-auto border-b border-white/10 px-4 py-3 sm:px-6"
-          aria-label="Ветки диалога"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-white/85">
-              <GitBranch
-                className="size-4 text-emerald-300/80"
-                aria-hidden="true"
-              />
-              Ветки диалога
-              <span className="font-normal text-white/40">
-                {agent.getBranches().length}
-              </span>
-            </h2>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="min-h-9 border-white/15 bg-white/[0.035] px-3 text-white/85 hover:bg-white/[0.08]"
-              disabled={isGenerating || agent.getBranches().length > 18}
-              onClick={handleCreateBranches}
-            >
-              Создать 2 ветки
-            </Button>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-            <label
-              className="text-xs text-white/60"
-              htmlFor="agent-branch-select"
-            >
-              Активная ветка
-            </label>
-            <select
-              id="agent-branch-select"
-              value={agent.getActiveBranchId()}
-              disabled={isGenerating}
-              onChange={(event) => {
-                const branchId = event.target.value;
-                if (agent.switchBranch(branchId)) {
-                  const branchName =
-                    agent.getBranches().find((branch) => branch.id === branchId)
-                      ?.name ?? 'ветка';
-                  setBranchFeedback({
-                    tone: 'success',
-                    text: `Активна «${branchName}». История других веток сохранена.`,
-                  });
-                }
-              }}
-              className="min-h-9 min-w-32 max-w-full rounded-lg border border-white/15 bg-neutral-900 px-3 py-1 text-sm text-white"
-            >
-              {agent.getBranches().map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs leading-5 text-white/45">
-              {agent.getCheckpointMessageId()
-                ? 'Checkpoint выбран'
-                : messages.some(
-                      (message) =>
-                        message.role === 'assistant' &&
-                        message.status === 'complete',
-                    )
-                  ? 'Точка ветвления — последний ответ'
-                  : 'Точка ветвления — начало диалога'}
-            </span>
-          </div>
-          <output
-            aria-live="polite"
-            className={`mt-3 block rounded-lg px-3 py-2 text-xs leading-5 ${
-              branchFeedback?.tone === 'error'
-                ? 'bg-red-400/10 text-red-200'
-                : branchFeedback
-                  ? 'bg-emerald-300/10 text-emerald-100'
-                  : 'bg-white/[0.035] text-white/50'
-            }`}
-          >
-            {branchFeedback?.text ??
-              'Исходная история остаётся в своей ветке после создания новых.'}
-          </output>
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
-            <label
-              className="text-xs text-white/60"
-              htmlFor="agent-merge-branch-select"
-            >
-              Объединить текущую с
-            </label>
-            <select
-              id="agent-merge-branch-select"
-              value={selectedMergeBranchId}
-              disabled={isGenerating || mergeCandidates.length === 0}
-              onChange={(event) => setMergeWithBranchId(event.target.value)}
-              className="min-h-9 min-w-32 max-w-full rounded-lg border border-white/15 bg-neutral-900 px-3 py-1 text-sm text-white"
-            >
-              {mergeCandidates.length ? (
-                mergeCandidates.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))
-              ) : (
-                <option value="">Нет второй ветки</option>
-              )}
-            </select>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="min-h-9 border-white/15 bg-white/[0.035] px-3 text-white/85 hover:bg-white/[0.08]"
-              disabled={
-                !selectedMergeBranchId ||
-                isGenerating ||
-                agent.getBranches().length >= 20
-              }
-              onClick={() => {
-                void agent.mergeBranches(
-                  agent.getActiveBranchId(),
-                  selectedMergeBranchId,
-                );
-              }}
-            >
-              Объединить ветки
-            </Button>
-          </div>
-          {agent.getMergeStatus() ? (
-            <output className="mt-2 block text-xs text-white/60">
-              {agent.getMergeStatus()}
-            </output>
-          ) : null}
-        </section>
-      ) : null}
-
-      {activeBranchSummary ? (
-        <section
-          className="max-h-[20dvh] shrink-0 overflow-y-auto border-b border-white/10 px-5 py-3"
-          aria-label="Объединённое summary"
-        >
-          <h2 className="mb-2 text-sm font-semibold text-white/80">
-            Объединённое summary
-          </h2>
-          <div className="markdown-body text-sm text-white/70">
-            <MarkdownMessage content={activeBranchSummary} />
-          </div>
-        </section>
-      ) : null}
-
-      <section className="chat-content" aria-label="История диалога">
-        {messages.length === 0 ? (
-          <div className="empty-state">
-            <span className="empty-icon" aria-hidden="true">
-              <Bot className="size-7" />
-            </span>
-            <div className="space-y-2 text-center">
-              <h2 className="text-xl font-semibold tracking-[-0.025em] text-white sm:text-2xl">
-                О чём поговорим?
-              </h2>
-              <p className="mx-auto max-w-md text-sm leading-6 text-white/45">
-                Ответы приходят напрямую из DeepSeek. У этого агента своя
-                отдельная история диалога.
+            <div className="min-w-0">
+              <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-white">
+                {agent.name}
+              </h1>
+              <p className="truncate text-xs text-white/40">
+                Температура {agent.config.temperature} · формат{' '}
+                {agent.config.outputFormat.toUpperCase()} · цель{' '}
+                {agent.config.targetOutputTokens === null
+                  ? 'без ограничения'
+                  : `${agent.config.targetOutputTokens} ток.`}{' '}
+                · окно {agent.config.contextWindowTokens} ток.
               </p>
             </div>
-
-            <div className="suggestion-grid">
-              {suggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  className="suggestion-card"
-                  disabled={isGenerating}
-                  onClick={() => sendMessage(suggestion)}
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
           </div>
-        ) : (
-          <div className="messages-list">
-            {messages.map((message, index) => {
-              const isUser = message.role === 'user';
-              const precedingUserMessage =
-                !isUser && messages[index - 1]?.role === 'user'
-                  ? messages[index - 1]
-                  : undefined;
-              const tokenStats =
-                !isUser && message.status === 'complete'
-                  ? formatTokenStats({
-                      requestTokens: precedingUserMessage?.messageTokens,
-                      contextTokens: message.contextTokens,
-                      contextWindowTokens: agent.config.contextWindowTokens,
-                      cachedContextTokens: message.cachedContextTokens,
-                      outputTokens: message.outputTokens,
-                    })
-                  : null;
 
-              return (
-                <Message
-                  key={message.id}
-                  align={isUser ? 'end' : 'start'}
-                  className="message-row"
-                >
-                  <MessageAvatar
-                    className={isUser ? 'user-avatar' : 'assistant-avatar'}
-                    aria-hidden="true"
-                  >
-                    {isUser ? <UserRound /> : <Sparkles />}
-                  </MessageAvatar>
-                  <MessageContent className={isUser ? 'items-end' : undefined}>
-                    <MessageHeader className="message-author">
-                      {isUser ? 'Вы' : agent.name}
-                    </MessageHeader>
-                    <div
-                      className={isUser ? 'user-message' : 'assistant-message'}
-                    >
-                      {message.content ? (
-                        isUser ? (
-                          <p className="whitespace-pre-wrap">
-                            {message.content}
-                          </p>
-                        ) : message.format && message.format !== 'text' ? (
-                          <StructuredMessage
-                            content={message.content}
-                            format={message.format}
-                          />
-                        ) : (
-                          <div className="markdown-body">
-                            <MarkdownMessage content={message.content} />
-                          </div>
-                        )
-                      ) : (
-                        <span
-                          className="typing-indicator"
-                          aria-label="Агент отвечает"
-                        >
-                          <i />
-                          <i />
-                          <i />
-                        </span>
-                      )}
-                      {isUser && message.attachments?.length ? (
-                        <AttachmentGroup className="message-attachments">
-                          {message.attachments.map((attachment) => (
-                            <SentAttachment
-                              key={attachment.id}
-                              attachment={attachment}
-                            />
-                          ))}
-                        </AttachmentGroup>
-                      ) : null}
-                    </div>
-                    {!isUser && message.status === 'stopped' ? (
-                      <MessageFooter className="message-status">
-                        Генерация остановлена
-                      </MessageFooter>
-                    ) : null}
-                    {!isUser && message.status === 'error' ? (
-                      <MessageFooter className="message-status text-red-300/60">
-                        Ответ прерван
-                      </MessageFooter>
-                    ) : null}
-                    {tokenStats ? (
-                      <MessageFooter className="message-tokens">
-                        {tokenStats}
-                      </MessageFooter>
-                    ) : null}
-                    {!isUser &&
-                    message.status === 'complete' &&
-                    agent.config.contextStrategy === 'branching' ? (
-                      <MessageFooter>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={isGenerating}
-                          onClick={() => agent.createCheckpoint(message.id)}
-                        >
-                          {agent.getCheckpointMessageId() === message.id
-                            ? '✓ Checkpoint'
-                            : 'Сделать checkpoint'}
-                        </Button>
-                      </MessageFooter>
-                    ) : null}
-                  </MessageContent>
-                </Message>
-              );
-            })}
-            <div ref={endOfMessagesRef} className="h-px" />
-          </div>
-        )}
-      </section>
-
-      <footer className="composer-wrap">
-        {error || attachmentError ? (
-          <Alert variant="destructive" className="error-alert">
-            <CircleAlert />
-            <AlertTitle>
-              {attachmentError ? 'Не удалось прикрепить файл' : 'Ошибка агента'}
-            </AlertTitle>
-            <AlertDescription>{attachmentError ?? error}</AlertDescription>
-          </Alert>
-        ) : null}
-
-        <form className="composer" onSubmit={handleSubmit}>
-          {selectedFiles.length ? (
-            <AttachmentGroup className="selected-attachments">
-              {selectedFiles.map((file) => {
-                const key = `${file.name}:${file.size}:${file.lastModified}`;
-                return (
-                  <PendingAttachment
-                    key={key}
-                    file={file}
-                    onRemove={() => {
-                      setSelectedFiles((current) =>
-                        current.filter(
-                          (item) =>
-                            `${item.name}:${item.size}:${item.lastModified}` !==
-                            key,
-                        ),
-                      );
-                      setAttachmentError(null);
-                    }}
-                  />
-                );
-              })}
-            </AttachmentGroup>
-          ) : null}
-          <div className="composer-row">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept={ATTACHMENT_INPUT_ACCEPT}
-              className="sr-only"
-              tabIndex={-1}
-              aria-hidden="true"
-              onChange={handleFilesSelected}
-            />
+          <div className="flex shrink-0 items-center gap-2">
+            <Badge className="model-badge" variant="outline">
+              <span className="status-dot" aria-hidden="true" />
+              <span className="hidden sm:inline">
+                {formatModelLabel(agent.config.model)}
+              </span>
+            </Badge>
+            <AgentMemoryPanelSheet agent={agent} />
+            <AgentMemoryDialog agent={agent} isGenerating={isGenerating} />
             <Button
               type="button"
               variant="ghost"
-              size="icon-lg"
-              className="attach-button"
-              aria-label="Прикрепить файлы"
-              disabled={isGenerating}
-              onClick={() => fileInputRef.current?.click()}
+              size="icon"
+              className="header-action"
+              aria-label="Очистить историю диалога"
+              disabled={messages.length === 0}
+              onClick={() => agent.clearHistory()}
             >
-              <Paperclip className="size-[18px]" />
+              <Trash2 />
             </Button>
-            <Textarea
-              ref={textareaRef}
-              aria-label="Сообщение агенту"
-              placeholder="Напишите сообщение…"
-              rows={1}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={handleKeyDown}
-              className="composer-input"
-            />
-            {isGenerating ? (
+          </div>
+        </header>
+
+        {agent.config.contextStrategy === 'branching' ? (
+          <section
+            className="max-h-[min(30dvh,18rem)] shrink-0 overflow-y-auto border-b border-white/10 px-4 py-3 sm:px-6"
+            aria-label="Ветки диалога"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-white/85">
+                <GitBranch
+                  className="size-4 text-emerald-300/80"
+                  aria-hidden="true"
+                />
+                Ветки диалога
+                <span className="font-normal text-white/40">
+                  {agent.getBranches().length}
+                </span>
+              </h2>
               <Button
                 type="button"
-                size="icon-lg"
-                className="stop-button"
-                aria-label="Остановить генерацию"
-                onClick={() => agent.stop()}
+                variant="outline"
+                size="sm"
+                className="min-h-9 border-white/15 bg-white/[0.035] px-3 text-white/85 hover:bg-white/[0.08]"
+                disabled={isGenerating || agent.getBranches().length > 18}
+                onClick={handleCreateBranches}
               >
-                <Square className="size-3.5 fill-current" />
+                Создать 2 ветки
               </Button>
-            ) : (
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <label
+                className="text-xs text-white/60"
+                htmlFor="agent-branch-select"
+              >
+                Активная ветка
+              </label>
+              <select
+                id="agent-branch-select"
+                value={agent.getActiveBranchId()}
+                disabled={isGenerating}
+                onChange={(event) => {
+                  const branchId = event.target.value;
+                  if (agent.switchBranch(branchId)) {
+                    const branchName =
+                      agent
+                        .getBranches()
+                        .find((branch) => branch.id === branchId)?.name ??
+                      'ветка';
+                    setBranchFeedback({
+                      tone: 'success',
+                      text: `Активна «${branchName}». История других веток сохранена.`,
+                    });
+                  }
+                }}
+                className="min-h-9 min-w-32 max-w-full rounded-lg border border-white/15 bg-neutral-900 px-3 py-1 text-sm text-white"
+              >
+                {agent.getBranches().map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs leading-5 text-white/45">
+                {agent.getCheckpointMessageId()
+                  ? 'Checkpoint выбран'
+                  : messages.some(
+                        (message) =>
+                          message.role === 'assistant' &&
+                          message.status === 'complete',
+                      )
+                    ? 'Точка ветвления — последний ответ'
+                    : 'Точка ветвления — начало диалога'}
+              </span>
+            </div>
+            <output
+              aria-live="polite"
+              className={`mt-3 block rounded-lg px-3 py-2 text-xs leading-5 ${
+                branchFeedback?.tone === 'error'
+                  ? 'bg-red-400/10 text-red-200'
+                  : branchFeedback
+                    ? 'bg-emerald-300/10 text-emerald-100'
+                    : 'bg-white/[0.035] text-white/50'
+              }`}
+            >
+              {branchFeedback?.text ??
+                'Исходная история остаётся в своей ветке после создания новых.'}
+            </output>
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
+              <label
+                className="text-xs text-white/60"
+                htmlFor="agent-merge-branch-select"
+              >
+                Объединить текущую с
+              </label>
+              <select
+                id="agent-merge-branch-select"
+                value={selectedMergeBranchId}
+                disabled={isGenerating || mergeCandidates.length === 0}
+                onChange={(event) => setMergeWithBranchId(event.target.value)}
+                className="min-h-9 min-w-32 max-w-full rounded-lg border border-white/15 bg-neutral-900 px-3 py-1 text-sm text-white"
+              >
+                {mergeCandidates.length ? (
+                  mergeCandidates.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">Нет второй ветки</option>
+                )}
+              </select>
               <Button
-                type="submit"
-                size="icon-lg"
-                className="send-button"
-                aria-label="Отправить сообщение"
-                disabled={!input.trim() && selectedFiles.length === 0}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="min-h-9 border-white/15 bg-white/[0.035] px-3 text-white/85 hover:bg-white/[0.08]"
+                disabled={
+                  !selectedMergeBranchId ||
+                  isGenerating ||
+                  agent.getBranches().length >= 20
+                }
+                onClick={() => {
+                  void agent.mergeBranches(
+                    agent.getActiveBranchId(),
+                    selectedMergeBranchId,
+                  );
+                }}
               >
-                <ArrowUp className="size-[18px]" />
+                Объединить ветки
               </Button>
-            )}
-          </div>
-        </form>
-        <p className="composer-hint">
-          Enter — отправить · Shift + Enter — новая строка · до 5 файлов ·
-          вложения отправляются в DeepSeek
-        </p>
-      </footer>
+            </div>
+            {agent.getMergeStatus() ? (
+              <output className="mt-2 block text-xs text-white/60">
+                {agent.getMergeStatus()}
+              </output>
+            ) : null}
+          </section>
+        ) : null}
 
-      <output className="sr-only" aria-live="polite" aria-atomic="true">
-        {isGenerating ? 'Агент отвечает' : ''}
-      </output>
+        {activeBranchSummary ? (
+          <section
+            className="max-h-[20dvh] shrink-0 overflow-y-auto border-b border-white/10 px-5 py-3"
+            aria-label="Объединённое summary"
+          >
+            <h2 className="mb-2 text-sm font-semibold text-white/80">
+              Объединённое summary
+            </h2>
+            <div className="markdown-body text-sm text-white/70">
+              <MarkdownMessage content={activeBranchSummary} />
+            </div>
+          </section>
+        ) : null}
+
+        <section className="chat-content" aria-label="История диалога">
+          {messages.length === 0 ? (
+            <div className="empty-state">
+              <span className="empty-icon" aria-hidden="true">
+                <Bot className="size-7" />
+              </span>
+              <div className="space-y-2 text-center">
+                <h2 className="text-xl font-semibold tracking-[-0.025em] text-white sm:text-2xl">
+                  О чём поговорим?
+                </h2>
+                <p className="mx-auto max-w-md text-sm leading-6 text-white/45">
+                  Ответы приходят напрямую из DeepSeek. У этого агента своя
+                  отдельная история диалога.
+                </p>
+              </div>
+
+              <div className="suggestion-grid">
+                {suggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    className="suggestion-card"
+                    disabled={isGenerating}
+                    onClick={() => sendMessage(suggestion)}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="messages-list">
+              {messages.map((message, index) => {
+                const isUser = message.role === 'user';
+                const precedingUserMessage =
+                  !isUser && messages[index - 1]?.role === 'user'
+                    ? messages[index - 1]
+                    : undefined;
+                const tokenStats =
+                  !isUser && message.status === 'complete'
+                    ? formatTokenStats({
+                        requestTokens: precedingUserMessage?.messageTokens,
+                        contextTokens: message.contextTokens,
+                        contextWindowTokens: agent.config.contextWindowTokens,
+                        cachedContextTokens: message.cachedContextTokens,
+                        outputTokens: message.outputTokens,
+                      })
+                    : null;
+
+                return (
+                  <Message
+                    key={message.id}
+                    align={isUser ? 'end' : 'start'}
+                    className="message-row"
+                  >
+                    <MessageAvatar
+                      className={isUser ? 'user-avatar' : 'assistant-avatar'}
+                      aria-hidden="true"
+                    >
+                      {isUser ? <UserRound /> : <Sparkles />}
+                    </MessageAvatar>
+                    <MessageContent
+                      className={isUser ? 'items-end' : undefined}
+                    >
+                      <MessageHeader className="message-author">
+                        {isUser ? 'Вы' : agent.name}
+                      </MessageHeader>
+                      <div
+                        className={
+                          isUser ? 'user-message' : 'assistant-message'
+                        }
+                      >
+                        {message.content ? (
+                          isUser ? (
+                            <p className="whitespace-pre-wrap">
+                              {message.content}
+                            </p>
+                          ) : message.format && message.format !== 'text' ? (
+                            <StructuredMessage
+                              content={message.content}
+                              format={message.format}
+                            />
+                          ) : (
+                            <div className="markdown-body">
+                              <MarkdownMessage content={message.content} />
+                            </div>
+                          )
+                        ) : (
+                          <span
+                            className="typing-indicator"
+                            aria-label="Агент отвечает"
+                          >
+                            <i />
+                            <i />
+                            <i />
+                          </span>
+                        )}
+                        {isUser && message.attachments?.length ? (
+                          <AttachmentGroup className="message-attachments">
+                            {message.attachments.map((attachment) => (
+                              <SentAttachment
+                                key={attachment.id}
+                                attachment={attachment}
+                              />
+                            ))}
+                          </AttachmentGroup>
+                        ) : null}
+                      </div>
+                      {!isUser && message.status === 'stopped' ? (
+                        <MessageFooter className="message-status">
+                          Генерация остановлена
+                        </MessageFooter>
+                      ) : null}
+                      {!isUser && message.status === 'error' ? (
+                        <MessageFooter className="message-status text-red-300/60">
+                          Ответ прерван
+                        </MessageFooter>
+                      ) : null}
+                      {tokenStats ? (
+                        <MessageFooter className="message-tokens">
+                          {tokenStats}
+                        </MessageFooter>
+                      ) : null}
+                      {!isUser &&
+                      message.status === 'complete' &&
+                      agent.config.contextStrategy === 'branching' ? (
+                        <MessageFooter>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={isGenerating}
+                            onClick={() => agent.createCheckpoint(message.id)}
+                          >
+                            {agent.getCheckpointMessageId() === message.id
+                              ? '✓ Checkpoint'
+                              : 'Сделать checkpoint'}
+                          </Button>
+                        </MessageFooter>
+                      ) : null}
+                    </MessageContent>
+                  </Message>
+                );
+              })}
+              <div ref={endOfMessagesRef} className="h-px" />
+            </div>
+          )}
+        </section>
+
+        <footer className="composer-wrap">
+          {error || attachmentError ? (
+            <Alert variant="destructive" className="error-alert">
+              <CircleAlert />
+              <AlertTitle>
+                {attachmentError
+                  ? 'Не удалось прикрепить файл'
+                  : 'Ошибка агента'}
+              </AlertTitle>
+              <AlertDescription>{attachmentError ?? error}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <form className="composer" onSubmit={handleSubmit}>
+            {selectedFiles.length ? (
+              <AttachmentGroup className="selected-attachments">
+                {selectedFiles.map((file) => {
+                  const key = `${file.name}:${file.size}:${file.lastModified}`;
+                  return (
+                    <PendingAttachment
+                      key={key}
+                      file={file}
+                      onRemove={() => {
+                        setSelectedFiles((current) =>
+                          current.filter(
+                            (item) =>
+                              `${item.name}:${item.size}:${item.lastModified}` !==
+                              key,
+                          ),
+                        );
+                        setAttachmentError(null);
+                      }}
+                    />
+                  );
+                })}
+              </AttachmentGroup>
+            ) : null}
+            <div className="composer-row">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ATTACHMENT_INPUT_ACCEPT}
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
+                onChange={handleFilesSelected}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-lg"
+                className="attach-button"
+                aria-label="Прикрепить файлы"
+                disabled={isGenerating}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip className="size-[18px]" />
+              </Button>
+              <Textarea
+                ref={textareaRef}
+                aria-label="Сообщение агенту"
+                placeholder="Напишите сообщение…"
+                rows={1}
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={handleKeyDown}
+                className="composer-input"
+              />
+              {isGenerating ? (
+                <Button
+                  type="button"
+                  size="icon-lg"
+                  className="stop-button"
+                  aria-label="Остановить генерацию"
+                  onClick={() => agent.stop()}
+                >
+                  <Square className="size-3.5 fill-current" />
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  size="icon-lg"
+                  className="send-button"
+                  aria-label="Отправить сообщение"
+                  disabled={!input.trim() && selectedFiles.length === 0}
+                >
+                  <ArrowUp className="size-[18px]" />
+                </Button>
+              )}
+            </div>
+          </form>
+          <p className="composer-hint">
+            Enter — отправить · Shift + Enter — новая строка · до 5 файлов ·
+            вложения отправляются в DeepSeek
+          </p>
+        </footer>
+
+        <output className="sr-only" aria-live="polite" aria-atomic="true">
+          {isGenerating ? 'Агент отвечает' : ''}
+        </output>
+      </div>
+      <AgentMemoryPanel agent={agent} />
     </div>
   );
 }

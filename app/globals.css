@@ -150,7 +150,7 @@ body {
   }
 
   .app-frame {
-    @apply h-full w-full overflow-hidden border-white/8 bg-[#10191a]/92 shadow-2xl shadow-black/30 backdrop-blur-xl sm:h-[min(900px,calc(100dvh-32px))] sm:max-w-6xl sm:rounded-[28px] sm:border;
+    @apply h-full w-full overflow-hidden border-white/8 bg-[#10191a]/92 shadow-2xl shadow-black/30 backdrop-blur-xl sm:h-[min(900px,calc(100dvh-32px))] sm:max-w-7xl sm:rounded-[28px] sm:border;
   }
 
   .app-sidebar {
@@ -161,8 +161,16 @@ body {
     @apply min-h-0 min-w-0 overflow-hidden;
   }
 
+  .chat-workspace {
+    @apply flex h-full min-h-0 w-full min-w-0 overflow-hidden;
+  }
+
   .chat-frame {
-    @apply flex h-full w-full flex-col overflow-hidden;
+    @apply flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden;
+  }
+
+  .memory-panel {
+    @apply hidden h-full w-[280px] shrink-0 flex-col border-l border-white/8 bg-[#0d1617]/55 lg:flex;
   }
 
   .chat-header {

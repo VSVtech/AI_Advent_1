@@ -22,6 +22,7 @@ function agentState(
     createdAt: 123,
     contextSummary: null,
     facts: {},
+    memoryCutoffMessageId: null,
     branches: [],
     activeBranchId: 'main',
     checkpointMessageId: null,
@@ -270,15 +271,17 @@ describe('долговременное хранение сессий агент�
   });
 
   it('игнорирует повреждённые данные, неизвестную версию и дубликаты id', () => {
-    expect(deserializeAgentSessions('{')).toEqual({
+    const damaged = deserializeAgentSessions('{');
+    expect(damaged).toMatchObject({
       agents: [],
       activeAgentId: null,
     });
+    expect(damaged.longTermMemory.getEntries()).toEqual([]);
     expect(
       deserializeAgentSessions(
-        JSON.stringify({ version: 2, agents: [], activeAgentId: null }),
+        JSON.stringify({ version: 3, agents: [], activeAgentId: null }),
       ),
-    ).toEqual({ agents: [], activeAgentId: null });
+    ).toMatchObject({ agents: [], activeAgentId: null });
 
     const valid = agentState();
     const restored = deserializeAgentSessions(
@@ -301,10 +304,12 @@ describe('долговременное хранение сессий агент�
       },
     };
 
-    expect(loadAgentSessions(storage)).toEqual({
+    const restored = loadAgentSessions(storage);
+    expect(restored).toMatchObject({
       agents: [],
       activeAgentId: null,
     });
+    expect(restored.longTermMemory.getEntries()).toEqual([]);
     expect(saveAgentSessions(storage, [], null)).toBe(false);
   });
 });

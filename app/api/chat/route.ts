@@ -26,6 +26,10 @@ import {
 } from '@/lib/chat-prompts';
 import { isVisionModel } from '@/lib/file-attachments';
 import {
+  buildLongTermMemorySystemPrompt,
+  isLongTermMemoryFacts,
+} from '@/lib/memory-layers';
+import {
   isStructuredOutputFormat,
   type StructuredOutputFormat,
   validateStructuredOutput,
@@ -72,7 +76,7 @@ function contextWindowError({
 
   return jsonError(413, {
     code: 'context_window_exceeded',
-    message: `Контекст переполнен: история и текущий запрос занимают примерно ${estimatedInputTokens} токенов, а лимит агента — ${contextWindowTokens}. Увеличьте лимит или сократите историю.`,
+    message: `Контекст переполнен: история, память и инструкции занимают примерно ${estimatedInputTokens} токенов, а лимит агента — ${contextWindowTokens}. Увеличьте лимит или сократите контекст.`,
   });
 }
 
@@ -318,10 +322,20 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  let systemPrompt: string | null;
+  if (
+    body.longTermMemory !== undefined &&
+    !isLongTermMemoryFacts(body.longTermMemory)
+  ) {
+    return jsonError(400, {
+      code: 'invalid_long_term_memory',
+      message: 'Долговременная память передана некорректно.',
+    });
+  }
+
+  let configuredPrompt: string | null;
 
   if (body.useSystemPrompt === false) {
-    systemPrompt = null;
+    configuredPrompt = null;
   } else if (body.useSelectorSystemPrompt === false) {
     if (!isValidCustomSystemPrompt(body.customSystemPrompt)) {
       return jsonError(400, {
@@ -329,10 +343,20 @@ export async function POST(request: Request): Promise<Response> {
         message: `Введите системный промпт от 1 до ${MAX_CUSTOM_SYSTEM_PROMPT_LENGTH} символов.`,
       });
     }
-    systemPrompt = body.customSystemPrompt;
+    configuredPrompt = body.customSystemPrompt;
   } else {
-    systemPrompt = buildSelectorSystemPrompt(outputFormat, targetOutputTokens);
+    configuredPrompt = buildSelectorSystemPrompt(
+      outputFormat,
+      targetOutputTokens,
+    );
   }
+  const longTermPrompt = buildLongTermMemorySystemPrompt(
+    body.longTermMemory ?? [],
+  );
+  const systemPrompt =
+    configuredPrompt && longTermPrompt
+      ? `${configuredPrompt}\n\n${longTermPrompt}`
+      : (configuredPrompt ?? longTermPrompt);
 
   const overflowResponse = contextWindowError({
     contextWindowTokens,

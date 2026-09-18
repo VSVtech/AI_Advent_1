@@ -54,6 +54,24 @@ function response(content: string): Response {
   );
 }
 
+function stubFetchWithMemory(
+  handler: (url: string, init: RequestInit) => Promise<Response>,
+): void {
+  vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+    if (url === '/api/chat') {
+      const request = JSON.parse(init.body as string) as ChatRequest;
+      const content = request.messages[0]?.content;
+      if (
+        typeof content === 'string' &&
+        content.startsWith('Ты отдельный агент управления памятью')
+      ) {
+        return Promise.resolve(response('{"shortTerm":{},"longTerm":[]}'));
+      }
+    }
+    return handler(url, init);
+  });
+}
+
 function createAgent(strategy: ContextStrategy): Agent {
   return new Agent(
     { ...createDefaultAgentConfig(), contextStrategy: strategy },
@@ -71,8 +89,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe('четыре стратегии на одном сценарии ТЗ из 12 сообщений', () => {
   it('без сжатия отправляет все 13 сообщений и хранит 14 с ответом', async () => {
     const requests: ChatRequest[] = [];
-    vi.stubGlobal(
-      'fetch',
+    stubFetchWithMemory(
       vi.fn().mockImplementation((_url, init: RequestInit) => {
         requests.push(JSON.parse(init.body as string) as ChatRequest);
         return Promise.resolve(response('ТЗ дополнено'));
@@ -90,8 +107,7 @@ describe('четыре стратегии на одном сценарии ТЗ 
 
   it('Sliding Window отправляет только последние 10, сохраняя все 14 для UI', async () => {
     const requests: ChatRequest[] = [];
-    vi.stubGlobal(
-      'fetch',
+    stubFetchWithMemory(
       vi.fn().mockImplementation((_url, init: RequestInit) => {
         requests.push(JSON.parse(init.body as string) as ChatRequest);
         return Promise.resolve(response('ТЗ дополнено'));
@@ -120,7 +136,7 @@ describe('четыре стратегии на одном сценарии ТЗ 
         return Promise.resolve(
           response(
             request.format === 'json'
-              ? '{"цель":"Собрать ТЗ","ограничения":"Сроки"}'
+              ? '{"shortTerm":{"цель":"Собрать ТЗ","ограничения":"Сроки"},"longTerm":[]}'
               : 'ТЗ дополнено',
           ),
         );
@@ -158,8 +174,7 @@ describe('четыре стратегии на одном сценарии ТЗ 
 
   it('Branching создаёт две независимые ветки от checkpoint и восстанавливает их', async () => {
     const requests: ChatRequest[] = [];
-    vi.stubGlobal(
-      'fetch',
+    stubFetchWithMemory(
       vi.fn().mockImplementation((_url, init: RequestInit) => {
         requests.push(JSON.parse(init.body as string) as ChatRequest);
         return Promise.resolve(response('Вариант ТЗ принят'));
@@ -228,8 +243,7 @@ describe('четыре стратегии на одном сценарии ТЗ 
 
   it('суммаризирует две ветки отдельно, объединяет summary и продолжает диалог с ним', async () => {
     const requests: ChatRequest[] = [];
-    vi.stubGlobal(
-      'fetch',
+    stubFetchWithMemory(
       vi.fn().mockImplementation((_url, init: RequestInit) => {
         const request = JSON.parse(init.body as string) as ChatRequest;
         requests.push(request);

@@ -20,6 +20,7 @@ function chatRequest(
     maxOutputTokens?: unknown;
     temperature?: unknown;
     model?: unknown;
+    longTermMemory?: unknown;
   } = {},
 ) {
   return new Request('http://localhost/api/chat', {
@@ -652,6 +653,101 @@ describe('POST /api/chat', () => {
     expect(payloads[1]).not.toHaveProperty('instructions');
     expect(payloads[2].instructions).toBe(customSystemPrompt);
     for (const payload of payloads) expect(payload.input).toEqual(messages);
+  });
+
+  it('отправляет долговременную память в instructions даже при выключенном системном промпте', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          deepSeekStream([
+            'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+          ]),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const messages = [
+      { role: 'assistant', content: 'Краткосрочные факты: цель — ТЗ' },
+      { role: 'user', content: 'Продолжи' },
+    ];
+
+    const response = await POST(
+      chatRequest(messages, 'text', 100, {
+        useSystemPrompt: false,
+        longTermMemory: [{ key: 'язык', value: 'Русский', kind: 'profile' }],
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.input).toEqual(messages);
+    expect(payload.instructions).toContain('Долговременная память');
+    expect(payload.instructions).toContain('"key":"язык"');
+    expect(payload.instructions).toContain('"value":"Русский"');
+    expect(JSON.stringify(payload.input)).not.toContain('Русский');
+  });
+
+  it('добавляет долговременную память после пользовательского системного промпта и для JSON-ответа', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(deepSeekResponse('{"ok":true}'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Ответь JSON' }], 'json', 100, {
+        useSystemPrompt: true,
+        useSelectorSystemPrompt: false,
+        customSystemPrompt: 'Отвечай кратко.',
+        longTermMemory: [{ key: 'проект', value: 'Альфа', kind: 'knowledge' }],
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.instructions).toMatch(
+      /^Отвечай кратко\.\n\nДолговременная память/,
+    );
+    expect(payload.instructions).toContain('"value":"Альфа"');
+    expect(payload.input).toEqual([{ role: 'user', content: 'Ответь JSON' }]);
+  });
+
+  it('учитывает долговременную память в лимите контекста и отклоняет повреждённые записи', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const messages = [{ role: 'user', content: 'Привет' }];
+
+    const overflow = await POST(
+      chatRequest(messages, 'text', 100, {
+        useSystemPrompt: false,
+        contextWindowTokens: 100,
+        longTermMemory: [
+          { key: 'знание', value: 'А'.repeat(500), kind: 'knowledge' },
+        ],
+      }),
+    );
+    expect(overflow.status).toBe(413);
+
+    for (const longTermMemory of [
+      null,
+      [{ key: 'цель', value: 'ТЗ', kind: 'other' }],
+      [{ key: '', value: 'ТЗ', kind: 'knowledge' }],
+    ]) {
+      const invalid = await POST(
+        chatRequest(messages, 'text', 100, {
+          useSystemPrompt: false,
+          longTermMemory,
+        }),
+      );
+      expect(invalid.status).toBe(400);
+      await expect(invalid.json()).resolves.toMatchObject({
+        error: { code: 'invalid_long_term_memory' },
+      });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('преобразует незавершённый ответ Responses API в безопасную ошибку', async () => {

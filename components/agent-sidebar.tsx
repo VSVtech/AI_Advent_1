@@ -1,6 +1,7 @@
 'use client';
+/* oxlint-disable next/no-html-link-for-pages -- Vinext has no Next Link package in the test runtime. */
 
-import { Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Plus, Sparkles, Trash2, UserRound } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { useAgentSnapshot } from '@/hooks/use-agent';
@@ -80,10 +81,21 @@ export function AgentSidebar({
       </div>
 
       <div className="agent-sidebar-body">
-        <Button type="button" className="agent-create-button" onClick={onCreate}>
+        <Button
+          type="button"
+          className="agent-create-button"
+          onClick={onCreate}
+        >
           <Plus className="size-4" />
           Новый агент
         </Button>
+        <a
+          href="/general-profile"
+          className="flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm text-white/65 transition-colors hover:bg-white/[0.06] hover:text-white"
+        >
+          <UserRound className="size-4" aria-hidden="true" />
+          General Profile
+        </a>
 
         {agents.length === 0 ? (
           <p className="agent-sidebar-empty">Нет запущенных агентов</p>

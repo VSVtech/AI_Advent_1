@@ -12,6 +12,8 @@ import {
 import type { ChatRequest } from '@/lib/chat-types';
 import type { ContextStrategy } from '@/lib/context-strategy';
 import {
+  buildLongTermMemorySystemPrompt,
+  buildSessionMemoryMessage,
   MAX_SHARED_LONG_TERM_MEMORY_ENTRIES,
   SharedLongTermMemory,
 } from '@/lib/memory-layers';
@@ -39,6 +41,19 @@ function response(content: string): Response {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('слои памяти агента', () => {
+  it('указывает приоритет памяти над общим профилем', () => {
+    const session = buildSessionMemoryMessage({
+      shortTerm: { 'язык ответа': 'русский' },
+      working: [],
+    });
+    const longTerm = buildLongTermMemorySystemPrompt([
+      { kind: 'profile', key: 'язык ответа', value: 'русский' },
+    ]);
+
+    expect(session?.content).toContain('При конфликте с профилем');
+    expect(longTerm).toContain('следуй записи памяти');
+  });
+
   it('не считает сообщения краткосрочной памятью', () => {
     const agent = new Agent(createDefaultAgentConfig(), 'Память', {
       id: 'memory-agent',

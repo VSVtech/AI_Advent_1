@@ -21,6 +21,7 @@ function chatRequest(
     temperature?: unknown;
     model?: unknown;
     longTermMemory?: unknown;
+    profile?: unknown;
   } = {},
 ) {
   return new Request('http://localhost/api/chat', {
@@ -689,6 +690,78 @@ describe('POST /api/chat', () => {
     expect(JSON.stringify(payload.input)).not.toContain('Русский');
   });
 
+  it('применяет разные профили к одному запросу, даже с выключенным обычным промптом', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          deepSeekStream([
+            'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+          ]),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const messages = [{ role: 'user', content: 'Объясни тему' }];
+    const concise = 'Стиль: кратко. Формат: один абзац. До 50 слов.';
+    const detailed = 'Стиль: подробно. Формат: список с примерами.';
+
+    for (const profile of [concise, detailed]) {
+      const response = await POST(
+        chatRequest(messages, 'text', 100, {
+          useSystemPrompt: false,
+          profile,
+        }),
+      );
+      expect(response.status).toBe(200);
+    }
+
+    const payloads = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(init.body as string),
+    );
+    expect(payloads[0].input).toEqual(messages);
+    expect(payloads[1].input).toEqual(messages);
+    expect(payloads[0].instructions).toContain(concise);
+    expect(payloads[1].instructions).toContain(detailed);
+    expect(payloads[0].instructions).not.toBe(payloads[1].instructions);
+  });
+
+  it('отклоняет некорректный профиль до вызова модели', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Привет' }], 'text', 100, {
+        profile: { style: 'Кратко' },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'invalid_user_profile' },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('учитывает профиль при проверке лимита контекста', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Привет' }], 'text', 100, {
+        useSystemPrompt: false,
+        contextWindowTokens: 100,
+        profile: 'Предпочтения: '.repeat(150),
+      }),
+    );
+
+    expect(response.status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('добавляет долговременную память после пользовательского системного промпта и для JSON-ответа', async () => {
     process.env.DEEPSEEK_API_KEY = 'test-secret';
     const fetchMock = vi
@@ -701,6 +774,7 @@ describe('POST /api/chat', () => {
         useSystemPrompt: true,
         useSelectorSystemPrompt: false,
         customSystemPrompt: 'Отвечай кратко.',
+        profile: 'Я аналитик. Предпочитаю примеры.',
         longTermMemory: [{ key: 'проект', value: 'Альфа', kind: 'knowledge' }],
       }),
     );
@@ -708,8 +782,12 @@ describe('POST /api/chat', () => {
     expect(response.status).toBe(200);
     const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(payload.instructions).toMatch(
-      /^Отвечай кратко\.\n\nДолговременная память/,
+      /^Отвечай кратко\.\n\nПрофиль пользователя/,
     );
+    expect(payload.instructions.indexOf('Профиль пользователя')).toBeLessThan(
+      payload.instructions.indexOf('Долговременная память'),
+    );
+    expect(payload.instructions).toContain('Я аналитик. Предпочитаю примеры.');
     expect(payload.instructions).toContain('"value":"Альфа"');
     expect(payload.input).toEqual([{ role: 'user', content: 'Ответь JSON' }]);
   });

@@ -43,8 +43,11 @@ import {
   type LongTermMemoryKind,
   type MemoryEntry,
 } from '@/lib/memory-layers';
+import { type AgentProfileMode } from '@/lib/user-profile';
 
 export interface AgentConfig {
+  profileMode: AgentProfileMode;
+  customProfile: string;
   model: string;
   temperature: number;
   outputFormat: ChatOutputFormat;
@@ -279,6 +282,8 @@ function buildUnifiedSummaryPrompt(
 
 export function createDefaultAgentConfig(): AgentConfig {
   return {
+    profileMode: 'general',
+    customProfile: '',
     model: DEFAULT_MODEL,
     temperature: DEFAULT_TEMPERATURE,
     outputFormat: 'text',
@@ -313,6 +318,7 @@ export class Agent {
   private messages: ChatMessage[] = [];
   private workingMemory: MemoryEntry[] = [];
   private readonly longTermMemory: SharedLongTermMemory;
+  private readonly getGeneralProfile: () => string;
   private readonly unsubscribeLongTermMemory: () => void;
   private readonly memoryCurator = new MemoryCurator();
   private facts: MemoryFacts = {};
@@ -334,9 +340,11 @@ export class Agent {
     name?: string,
     restoredState?: RestoredAgentState,
     sharedLongTermMemory?: SharedLongTermMemory,
+    getGeneralProfile?: () => string,
   ) {
     this.id = restoredState?.id ?? createId();
     this.config = { ...config };
+    this.getGeneralProfile = getGeneralProfile ?? (() => '');
     this.createdAt = restoredState?.createdAt ?? Date.now();
     this.name = name?.trim() || `Агент · ${formatModelLabel(config.model)}`;
     this.messages =
@@ -1161,12 +1169,17 @@ export class Agent {
         .flatMap(({ key, value, kind }) =>
           kind ? [{ key, value, kind }] : [],
         );
+      const profile =
+        this.config.profileMode === 'general'
+          ? this.getGeneralProfile().trim()
+          : this.config.customProfile.trim();
 
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: requestMessages,
+          ...(profile ? { profile } : {}),
           ...(longTermMemory.length ? { longTermMemory } : {}),
           format: this.config.outputFormat,
           contextWindowTokens: this.config.contextWindowTokens,

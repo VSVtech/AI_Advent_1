@@ -38,6 +38,11 @@ import {
   SharedLongTermMemory,
   type MemoryEntry,
 } from '@/lib/memory-layers';
+import {
+  isAgentProfileMode,
+  loadGeneralProfile,
+  normalizeProfileText,
+} from '@/lib/user-profile';
 
 export const AGENT_SESSIONS_STORAGE_KEY = 'deepseek-chat:agent-sessions:v1';
 
@@ -151,6 +156,13 @@ function restoreConfig(value: unknown): AgentConfig | null {
         : 'sticky-facts'
       : value.contextStrategy;
   const customSystemPrompt = value.customSystemPrompt;
+  // Pre-profile sessions preserve their old behavior: no profile instructions.
+  const profileMode =
+    value.profileMode === undefined ? 'custom' : value.profileMode;
+  const customProfile =
+    value.customProfile === undefined
+      ? ''
+      : normalizeProfileText(value.customProfile);
   const hasValidCustomSystemPrompt =
     customSystemPrompt === null ||
     (typeof customSystemPrompt === 'string' &&
@@ -158,6 +170,8 @@ function restoreConfig(value: unknown): AgentConfig | null {
 
   if (
     !isValidModel(value.model) ||
+    !isAgentProfileMode(profileMode) ||
+    customProfile === null ||
     !isValidTemperature(value.temperature) ||
     !isOutputFormat(value.outputFormat) ||
     !isValidContextWindowTokens(contextWindowTokens) ||
@@ -174,6 +188,8 @@ function restoreConfig(value: unknown): AgentConfig | null {
   }
 
   return {
+    profileMode,
+    customProfile,
     model: value.model,
     temperature: value.temperature,
     outputFormat: value.outputFormat,
@@ -338,6 +354,7 @@ function restoreBranches(value: unknown): AgentBranch[] | null {
 function restoreAgent(
   value: unknown,
   sharedLongTermMemory: SharedLongTermMemory,
+  getGeneralProfile: () => string,
 ): Agent | null {
   if (
     !isRecord(value) ||
@@ -399,6 +416,7 @@ function restoreAgent(
       checkpointMessageId,
     },
     sharedLongTermMemory,
+    getGeneralProfile,
   );
 }
 
@@ -438,6 +456,7 @@ function mergeLegacyLongTermMemory(
 
 export function deserializeAgentSessions(
   rawValue: string | null,
+  getGeneralProfile: () => string = () => '',
 ): RestoredAgentSessions {
   const empty = () => ({
     agents: [],
@@ -471,7 +490,7 @@ export function deserializeAgentSessions(
     [];
   const seenIds = new Set<string>();
   const agents = value.agents.flatMap((storedAgent) => {
-    const agent = restoreAgent(storedAgent, longTermMemory);
+    const agent = restoreAgent(storedAgent, longTermMemory, getGeneralProfile);
     if (!agent || seenIds.has(agent.id)) return [];
     seenIds.add(agent.id);
     if (!hasSharedMemory && isRecord(storedAgent)) {
@@ -502,6 +521,7 @@ export function loadAgentSessions(
   try {
     return deserializeAgentSessions(
       storage.getItem(AGENT_SESSIONS_STORAGE_KEY),
+      () => loadGeneralProfile(storage),
     );
   } catch {
     return {

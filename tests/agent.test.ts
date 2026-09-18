@@ -113,6 +113,60 @@ describe('Agent', () => {
     });
   });
 
+  it('берёт обновлённый общий профиль для каждого запроса', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          'event: delta\ndata: {"content":"Ответ"}\n\n',
+          'event: done\ndata: {"finishReason":"stop"}\n\n',
+        ]),
+      );
+    stubFetchWithMemory(fetchMock);
+    let generalProfile = 'Кратко и по делу';
+    const agent = new Agent(
+      config({ profileMode: 'general' }),
+      undefined,
+      undefined,
+      undefined,
+      () => generalProfile,
+    );
+
+    await agent.sendMessage('Объясни тему');
+    generalProfile = 'Подробно, с примерами';
+    await agent.sendMessage('Приведи пример');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const bodies = fetchMock.mock.calls.map(
+      ([, init]) => JSON.parse(init.body as string) as ChatRequest,
+    );
+    expect(bodies[0].profile).toBe('Кратко и по делу');
+    expect(bodies[1].profile).toBe('Подробно, с примерами');
+    expect(agent.exportState().config.profileMode).toBe('general');
+  });
+
+  it('передаёт свой профиль или пропускает пустой', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse(['event: done\ndata: {"finishReason":"stop"}\n\n']),
+      );
+    stubFetchWithMemory(fetchMock);
+
+    await new Agent(
+      config({ profileMode: 'custom', customProfile: 'Без англицизмов' }),
+    ).sendMessage('Привет');
+    await new Agent(
+      config({ profileMode: 'custom', customProfile: '' }),
+    ).sendMessage('Привет');
+
+    const bodies = fetchMock.mock.calls.map(
+      ([, init]) => JSON.parse(init.body as string) as ChatRequest,
+    );
+    expect(bodies[0].profile).toBe('Без англицизмов');
+    expect(bodies[1].profile).toBeUndefined();
+  });
+
   it('пробрасывает отключённую целевую длину (null) в запрос как есть', async () => {
     const fetchMock = vi
       .fn()

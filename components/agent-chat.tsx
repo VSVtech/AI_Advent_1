@@ -360,7 +360,12 @@ export function AgentChat({ agent }: { agent: Agent }) {
                 {agent.config.targetOutputTokens === null
                   ? 'без ограничения'
                   : `${agent.config.targetOutputTokens} ток.`}{' '}
-                · окно {agent.config.contextWindowTokens} ток.
+                · окно {agent.config.contextWindowTokens} ток. · профиль{' '}
+                {agent.config.profileMode === 'general'
+                  ? 'General Profile'
+                  : agent.config.customProfile.trim()
+                    ? 'свой'
+                    : 'выключен'}
               </p>
             </div>
           </div>

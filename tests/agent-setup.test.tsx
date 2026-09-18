@@ -38,4 +38,15 @@ describe('настройка агента', () => {
       /type="radio" id="agent-context-none"[^>]*checked=""/,
     );
   });
+
+  it('предлагает общий профиль и ссылку на отдельную страницу', () => {
+    const markup = renderToStaticMarkup(
+      <AgentSetup onCreate={vi.fn()} onCancel={vi.fn()} />,
+    );
+
+    expect(markup).toContain('Профиль пользователя');
+    expect(markup).toContain('id="agent-use-general-profile"');
+    expect(markup).toContain('Использовать стандартный профиль');
+    expect(markup).toContain('href="/general-profile"');
+  });
 });

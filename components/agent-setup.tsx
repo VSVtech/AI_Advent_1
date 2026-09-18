@@ -1,4 +1,5 @@
 'use client';
+/* oxlint-disable next/no-html-link-for-pages -- Vinext has no Next Link package in the test runtime. */
 
 import { Sparkles } from 'lucide-react';
 import { type SyntheticEvent, useState } from 'react';
@@ -8,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -43,6 +45,7 @@ import {
   isContextStrategy,
   type ContextStrategy,
 } from '@/lib/context-strategy';
+import { MAX_PROFILE_LENGTH, normalizeProfileText } from '@/lib/user-profile';
 
 const outputFormats: Array<{ value: ChatOutputFormat; label: string }> = [
   { value: 'text', label: 'Text' },
@@ -105,6 +108,8 @@ export function AgentSetup({
   const [customSystemPrompt, setCustomSystemPrompt] = useState<string | null>(
     null,
   );
+  const [useGeneralProfile, setUseGeneralProfile] = useState(true);
+  const [customProfile, setCustomProfile] = useState('');
 
   const selectedModel = availableModels.includes(model)
     ? model
@@ -142,7 +147,9 @@ export function AgentSetup({
       ? calculateMaxOutputTokens(resolvedTargetOutputTokens)
       : null;
 
+  const normalizedCustomProfile = normalizeProfileText(customProfile);
   const canCreate =
+    (useGeneralProfile || normalizedCustomProfile !== null) &&
     !hasInvalidTemperature &&
     !hasInvalidContextWindowTokens &&
     !hasInvalidTargetOutputTokens &&
@@ -154,6 +161,8 @@ export function AgentSetup({
 
     onCreate(
       {
+        profileMode: useGeneralProfile ? 'general' : 'custom',
+        customProfile: normalizedCustomProfile ?? '',
         model: selectedModel,
         temperature: parsedTemperature,
         outputFormat,
@@ -383,6 +392,60 @@ export function AgentSetup({
             </p>
           </fieldset>
         </div>
+
+        <fieldset className="space-y-3 rounded-xl border border-white/10 bg-white/[0.025] p-4">
+          <legend className="px-1 text-sm font-semibold text-white/85">
+            Профиль пользователя
+          </legend>
+          <p className="system-prompt-hint">
+            Профиль добавляется к каждому запросу в системные инструкции. При
+            конфликте с памятью приоритет у текущего контекста.
+          </p>
+          <label
+            htmlFor="agent-use-general-profile"
+            className="flex cursor-pointer items-center gap-2 text-sm text-white/80"
+          >
+            <Checkbox
+              id="agent-use-general-profile"
+              checked={useGeneralProfile}
+              onCheckedChange={(checked) => setUseGeneralProfile(checked)}
+            />
+            Использовать стандартный профиль
+          </label>
+          {useGeneralProfile ? (
+            <p className="system-prompt-hint">
+              Текст берётся со страницы{' '}
+              <a href="/general-profile" className="text-emerald-300 underline">
+                General Profile
+              </a>
+              . Изменения профиля будут учитываться в следующих запросах.
+            </p>
+          ) : (
+            <div className="agent-setup-field">
+              <label className="format-label" htmlFor="agent-custom-profile">
+                Собственный профиль
+              </label>
+              <Textarea
+                id="agent-custom-profile"
+                value={customProfile}
+                maxLength={MAX_PROFILE_LENGTH}
+                placeholder="Опишите себя и предпочтения: стиль, формат, ограничения…"
+                className="min-h-28 resize-y border-white/8 bg-white/[0.035] text-sm text-white/75"
+                onChange={(event) => setCustomProfile(event.target.value)}
+              />
+              <p className="system-prompt-hint">
+                Если оставить поле пустым, профиль не добавляется.
+              </p>
+            </div>
+          )}
+        </fieldset>
+
+        {!useGeneralProfile && normalizedCustomProfile === null ? (
+          <p role="alert" className="system-prompt-error">
+            Профиль не должен превышать {MAX_PROFILE_LENGTH} символов или
+            содержать управляющие символы.
+          </p>
+        ) : null}
 
         {hasInvalidTemperature ? (
           <p role="alert" className="system-prompt-error">

@@ -9,6 +9,7 @@ import { AgentSidebar } from '@/components/agent-sidebar';
 import { Agent, type AgentConfig } from '@/lib/agent';
 import { loadAgentSessions, saveAgentSessions } from '@/lib/agent-storage';
 import { SharedLongTermMemory } from '@/lib/memory-layers';
+import { loadGeneralProfile } from '@/lib/user-profile';
 
 type View = 'empty' | 'setup' | 'chat';
 
@@ -85,7 +86,13 @@ export default function Home() {
     agents.find((agent) => agent.id === activeAgentId) ?? null;
 
   const handleCreate = (config: AgentConfig, name: string) => {
-    const agent = new Agent(config, name, undefined, longTermMemoryRef.current);
+    const agent = new Agent(
+      config,
+      name,
+      undefined,
+      longTermMemoryRef.current,
+      () => loadGeneralProfile(window.localStorage),
+    );
     setAgents((current) => [...current, agent]);
     setActiveAgentId(agent.id);
     setView('chat');

@@ -151,6 +151,8 @@ describe('долговременное хранение сессий агент�
     const legacyConfig = { ...legacyState.config } as Record<string, unknown>;
     delete legacyConfig.contextWindowTokens;
     delete legacyConfig.contextStrategy;
+    delete legacyConfig.profileMode;
+    delete legacyConfig.customProfile;
     legacyConfig.useContextCompression = true;
 
     const restored = deserializeAgentSessions(
@@ -165,6 +167,31 @@ describe('долговременное хранение сессий агент�
     expect(restored.agents[0].config.contextStrategy).toBe('none');
     expect(restored.agents[1].config.contextWindowTokens).toBe(1_000_000);
     expect(restored.agents[1].config.contextStrategy).toBe('sticky-facts');
+    expect(restored.agents[1].config.profileMode).toBe('custom');
+    expect(restored.agents[1].config.customProfile).toBe('');
+  });
+
+  it('сохраняет выбор собственного профиля при перезапуске', () => {
+    const state = agentState({
+      config: {
+        ...createDefaultAgentConfig(),
+        profileMode: 'custom',
+        customProfile: 'Отвечай кратко и без англицизмов',
+      },
+    });
+    const restored = deserializeAgentSessions(
+      JSON.stringify({
+        version: 2,
+        agents: [state],
+        activeAgentId: state.id,
+        longTermMemory: [],
+      }),
+    );
+
+    expect(restored.agents[0].config.profileMode).toBe('custom');
+    expect(restored.agents[0].config.customProfile).toBe(
+      'Отвечай кратко и без англицизмов',
+    );
   });
 
   it('переносит старую summary в facts при восстановлении', () => {

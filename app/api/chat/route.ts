@@ -30,6 +30,10 @@ import {
   isLongTermMemoryFacts,
 } from '@/lib/memory-layers';
 import {
+  buildUserProfileSystemPrompt,
+  normalizeProfileText,
+} from '@/lib/user-profile';
+import {
   isStructuredOutputFormat,
   type StructuredOutputFormat,
   validateStructuredOutput,
@@ -332,6 +336,15 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
+  const profile =
+    body.profile === undefined ? '' : normalizeProfileText(body.profile);
+  if (body.profile !== undefined && profile === null) {
+    return jsonError(400, {
+      code: 'invalid_user_profile',
+      message: 'Профиль пользователя передан некорректно.',
+    });
+  }
+
   let configuredPrompt: string | null;
 
   if (body.useSystemPrompt === false) {
@@ -353,10 +366,11 @@ export async function POST(request: Request): Promise<Response> {
   const longTermPrompt = buildLongTermMemorySystemPrompt(
     body.longTermMemory ?? [],
   );
+  const profilePrompt = profile ? buildUserProfileSystemPrompt(profile) : null;
   const systemPrompt =
-    configuredPrompt && longTermPrompt
-      ? `${configuredPrompt}\n\n${longTermPrompt}`
-      : (configuredPrompt ?? longTermPrompt);
+    [configuredPrompt, profilePrompt, longTermPrompt]
+      .filter(Boolean)
+      .join('\n\n') || null;
 
   const overflowResponse = contextWindowError({
     contextWindowTokens,

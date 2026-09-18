@@ -51,6 +51,8 @@ export interface ApiChatMessage {
 
 export interface ChatRequest {
   messages: ApiChatMessage[];
+  // Explicit profile text, distinct from automatically curated memory.
+  profile?: string;
   // Structured shared memory is converted to system instructions by the API.
   longTermMemory?: LongTermMemoryFact[];
   format?: ChatOutputFormat;

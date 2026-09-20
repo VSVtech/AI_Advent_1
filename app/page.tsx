@@ -6,12 +6,14 @@ import { useEffect, useRef, useState } from 'react';
 import { AgentChat } from '@/components/agent-chat';
 import { AgentSetup } from '@/components/agent-setup';
 import { AgentSidebar } from '@/components/agent-sidebar';
-import { Agent, type AgentConfig } from '@/lib/agent';
+import { TaskSetup } from '@/components/task-setup';
+import { TaskWorkspace } from '@/components/task-workspace';
+import { Agent, createDefaultAgentConfig, type AgentConfig } from '@/lib/agent';
 import { loadAgentSessions, saveAgentSessions } from '@/lib/agent-storage';
 import { SharedLongTermMemory } from '@/lib/memory-layers';
 import { loadGeneralProfile } from '@/lib/user-profile';
 
-type View = 'empty' | 'setup' | 'chat';
+type View = 'empty' | 'setup' | 'chat' | 'task-setup' | 'task';
 
 export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -27,7 +29,16 @@ export default function Home() {
       longTermMemoryRef.current = restored.longTermMemory;
       setAgents(restored.agents);
       setActiveAgentId(restored.activeAgentId);
-      setView(restored.activeAgentId ? 'chat' : 'empty');
+      const restoredActiveAgent = restored.agents.find(
+        (agent) => agent.id === restored.activeAgentId,
+      );
+      setView(
+        restoredActiveAgent?.kind === 'task'
+          ? 'task'
+          : restoredActiveAgent
+            ? 'chat'
+            : 'empty',
+      );
       setHasRestoredSessions(true);
     }, 0);
 
@@ -103,6 +114,34 @@ export default function Home() {
     setView('chat');
   };
 
+  const handleSelectTask = (id: string) => {
+    setActiveAgentId(id);
+    setView('task');
+  };
+
+  const handleCreateTask = (title: string, goal: string) => {
+    const taskAgent = new Agent(
+      createDefaultAgentConfig(),
+      title,
+      undefined,
+      longTermMemoryRef.current,
+      () => loadGeneralProfile(window.localStorage),
+      'task',
+    );
+    const started = taskAgent.dispatchTaskState({
+      type: 'start',
+      title,
+      goal,
+    });
+    if (!started) {
+      taskAgent.dispose();
+      return;
+    }
+    setAgents((current) => [...current, taskAgent]);
+    setActiveAgentId(taskAgent.id);
+    setView('task');
+  };
+
   const handleDelete = (id: string) => {
     setAgents((current) => {
       const agent = current.find((item) => item.id === id);
@@ -123,6 +162,8 @@ export default function Home() {
           activeAgentId={activeAgentId}
           onSelect={handleSelect}
           onCreate={() => setView('setup')}
+          onCreateTask={() => setView('task-setup')}
+          onSelectTask={handleSelectTask}
           onDelete={handleDelete}
         />
 
@@ -132,8 +173,39 @@ export default function Home() {
               onCreate={handleCreate}
               onCancel={() => setView(activeAgent ? 'chat' : 'empty')}
             />
+          ) : view === 'task-setup' ? (
+            <TaskSetup
+              onCreate={handleCreateTask}
+              onCancel={() =>
+                setView(
+                  activeAgent?.kind === 'task'
+                    ? 'task'
+                    : activeAgent
+                      ? 'chat'
+                      : 'empty',
+                )
+              }
+            />
+          ) : view === 'task' && activeAgent ? (
+            <TaskWorkspace
+              key={activeAgent.id}
+              agent={activeAgent}
+              onOpenChat={() => setView('chat')}
+              onStartPlanning={() => {
+                setView('chat');
+                void activeAgent.requestTaskPlan();
+              }}
+            />
           ) : view === 'chat' && activeAgent ? (
-            <AgentChat key={activeAgent.id} agent={activeAgent} />
+            <AgentChat
+              key={activeAgent.id}
+              agent={activeAgent}
+              onOpenTask={
+                activeAgent.kind === 'task' || activeAgent.getTaskState()
+                  ? () => setView('task')
+                  : undefined
+              }
+            />
           ) : (
             <div className="agent-empty-state">
               <span className="empty-icon" aria-hidden="true">

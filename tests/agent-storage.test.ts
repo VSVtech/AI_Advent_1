@@ -11,6 +11,7 @@ import {
   loadAgentSessions,
   saveAgentSessions,
 } from '@/lib/agent-storage';
+import { GENERAL_PROFILE_STORAGE_KEY } from '@/lib/user-profile';
 
 function agentState(
   overrides: Partial<PersistedAgentState> = {},
@@ -68,6 +69,48 @@ function agentState(
 }
 
 describe('долговременное хранение сессий агентов', () => {
+  it('однократно удаляет старые чаты и память, сохраняя General Profile', () => {
+    const previousKey = 'deepseek-chat:agent-sessions:v1';
+    const resetKey = 'deepseek-chat:agent-sessions:reset-2026-09-18';
+    const oldSessions = JSON.stringify({
+      version: 2,
+      agents: [agentState()],
+      activeAgentId: 'agent-1',
+      longTermMemory: [
+        {
+          id: 'fact-1',
+          key: 'язык',
+          value: 'русский',
+          kind: 'profile',
+          updatedAt: 1,
+        },
+      ],
+    });
+    const values = new Map<string, string>([
+      [previousKey, oldSessions],
+      [AGENT_SESSIONS_STORAGE_KEY, oldSessions],
+      [GENERAL_PROFILE_STORAGE_KEY, 'Отвечай кратко'],
+    ]);
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => values.set(key, value),
+    };
+
+    const restored = loadAgentSessions(storage);
+    expect(restored.agents).toEqual([]);
+    expect(restored.activeAgentId).toBeNull();
+    expect(restored.longTermMemory.getEntries()).toEqual([]);
+    expect(values.has(previousKey)).toBe(false);
+    expect(values.has(AGENT_SESSIONS_STORAGE_KEY)).toBe(false);
+    expect(values.get(resetKey)).toBe('done');
+    expect(values.get(GENERAL_PROFILE_STORAGE_KEY)).toBe('Отвечай кратко');
+
+    const freshAgent = new Agent(createDefaultAgentConfig(), 'Новый агент');
+    expect(saveAgentSessions(storage, [freshAgent], freshAgent.id)).toBe(true);
+    expect(loadAgentSessions(storage).agents[0].id).toBe(freshAgent.id);
+  });
+
   it('сохраняет и восстанавливает объект агента, историю и активную сессию', () => {
     const values = new Map<string, string>();
     const storage = {

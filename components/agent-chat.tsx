@@ -66,6 +66,7 @@ import {
   isVisionModel,
   validateAttachmentFiles,
 } from '@/lib/file-attachments';
+import { TASK_PHASES } from '@/lib/task-state';
 
 const suggestions = [
   'Объясни сложную тему простыми словами',
@@ -223,7 +224,13 @@ function formatTokenStats({
   return parts.length ? `Токены: ${parts.join(' · ')}` : null;
 }
 
-export function AgentChat({ agent }: { agent: Agent }) {
+export function AgentChat({
+  agent,
+  onOpenTask,
+}: {
+  agent: Agent;
+  onOpenTask?: () => void;
+}) {
   const { messages, isGenerating, error } = useAgentSnapshot(agent);
   const [input, setInput] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -245,6 +252,11 @@ export function AgentChat({ agent }: { agent: Agent }) {
     ? mergeWithBranchId
     : (mergeCandidates.at(-1)?.id ?? '');
   const activeBranchSummary = agent.getActiveBranchSummary();
+  const taskState = agent.getTaskState();
+  const taskPaused = taskState?.paused ?? false;
+  const nextTaskPhase = taskState
+    ? TASK_PHASES[TASK_PHASES.indexOf(taskState.phase) + 1]
+    : undefined;
 
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({
@@ -259,8 +271,8 @@ export function AgentChat({ agent }: { agent: Agent }) {
 
   const sendMessage = (rawContent?: string) => {
     const content = (rawContent ?? input).trim();
-    if ((!content && selectedFiles.length === 0) || isGenerating) return;
-
+    if ((!content && selectedFiles.length === 0) || isGenerating || taskPaused)
+      return;
     setInput('');
     const files = selectedFiles;
     setSelectedFiles([]);
@@ -371,6 +383,16 @@ export function AgentChat({ agent }: { agent: Agent }) {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            {onOpenTask ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onOpenTask}
+              >
+                К задаче
+              </Button>
+            ) : null}
             <Badge className="model-badge" variant="outline">
               <span className="status-dot" aria-hidden="true" />
               <span className="hidden sm:inline">
@@ -566,7 +588,7 @@ export function AgentChat({ agent }: { agent: Agent }) {
                     key={suggestion}
                     type="button"
                     className="suggestion-card"
-                    disabled={isGenerating}
+                    disabled={isGenerating || taskPaused}
                     onClick={() => sendMessage(suggestion)}
                   >
                     {suggestion}
@@ -578,6 +600,8 @@ export function AgentChat({ agent }: { agent: Agent }) {
             <div className="messages-list">
               {messages.map((message, index) => {
                 const isUser = message.role === 'user';
+                const isTaskControl = message.source === 'task-control';
+                const isTaskTransition = message.source === 'task-transition';
                 const precedingUserMessage =
                   !isUser && messages[index - 1]?.role === 'user'
                     ? messages[index - 1]
@@ -603,13 +627,27 @@ export function AgentChat({ agent }: { agent: Agent }) {
                       className={isUser ? 'user-avatar' : 'assistant-avatar'}
                       aria-hidden="true"
                     >
-                      {isUser ? <UserRound /> : <Sparkles />}
+                      {isTaskControl ? (
+                        <Bot />
+                      ) : isUser ? (
+                        <UserRound />
+                      ) : (
+                        <Sparkles />
+                      )}
                     </MessageAvatar>
                     <MessageContent
                       className={isUser ? 'items-end' : undefined}
                     >
                       <MessageHeader className="message-author">
-                        {isUser ? 'Вы' : agent.name}
+                        {isTaskTransition
+                          ? isUser
+                            ? 'Команда задачи'
+                            : 'Состояние задачи'
+                          : isTaskControl
+                            ? 'Служебный запрос'
+                            : isUser
+                              ? 'Вы'
+                              : agent.name}
                       </MessageHeader>
                       <div
                         className={
@@ -747,7 +785,7 @@ export function AgentChat({ agent }: { agent: Agent }) {
                 size="icon-lg"
                 className="attach-button"
                 aria-label="Прикрепить файлы"
-                disabled={isGenerating}
+                disabled={isGenerating || taskPaused}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Paperclip className="size-[18px]" />
@@ -755,9 +793,14 @@ export function AgentChat({ agent }: { agent: Agent }) {
               <Textarea
                 ref={textareaRef}
                 aria-label="Сообщение агенту"
-                placeholder="Напишите сообщение…"
+                placeholder={
+                  taskPaused
+                    ? 'Задача на паузе — нажмите «Продолжить задачу»'
+                    : 'Напишите сообщение…'
+                }
                 rows={1}
                 value={input}
+                disabled={taskPaused}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={handleKeyDown}
                 className="composer-input"
@@ -778,7 +821,9 @@ export function AgentChat({ agent }: { agent: Agent }) {
                   size="icon-lg"
                   className="send-button"
                   aria-label="Отправить сообщение"
-                  disabled={!input.trim() && selectedFiles.length === 0}
+                  disabled={
+                    taskPaused || (!input.trim() && selectedFiles.length === 0)
+                  }
                 >
                   <ArrowUp className="size-[18px]" />
                 </Button>
@@ -786,8 +831,13 @@ export function AgentChat({ agent }: { agent: Agent }) {
             </div>
           </form>
           <p className="composer-hint">
-            Enter — отправить · Shift + Enter — новая строка · до 5 файлов ·
-            вложения отправляются в DeepSeek
+            {taskPaused
+              ? 'Задача приостановлена: текущий этап и шаг сохранены.'
+              : `Enter — отправить · Shift + Enter — новая строка · до 5 файлов · вложения отправляются в DeepSeek${
+                  taskState?.awaitingConfirmation && nextTaskPhase
+                    ? ` · подтвердите результат в чате для перехода к ${nextTaskPhase}`
+                    : ''
+                }`}
           </p>
         </footer>
 

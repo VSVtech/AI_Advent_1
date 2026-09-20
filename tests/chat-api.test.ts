@@ -5,6 +5,7 @@ import {
   buildSelectorSystemPrompt,
   MAX_CUSTOM_SYSTEM_PROMPT_LENGTH,
 } from '@/lib/chat-prompts';
+import { TASK_PHASES, type TaskState } from '@/lib/task-state';
 
 const originalApiKey = process.env.DEEPSEEK_API_KEY;
 
@@ -22,6 +23,7 @@ function chatRequest(
     model?: unknown;
     longTermMemory?: unknown;
     profile?: unknown;
+    taskState?: unknown;
   } = {},
 ) {
   return new Request('http://localhost/api/chat', {
@@ -91,6 +93,140 @@ describe('POST /api/chat', () => {
 
     expect(response.status).toBe(400);
     expect(await response.text()).not.toContain('test-secret');
+  });
+
+  it('отклоняет некорректное состояние задачи до вызова модели', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Продолжи' }], 'text', null, {
+        taskState: { phase: 'invalid' },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'invalid_task_state' },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(TASK_PHASES)(
+    'закрепляет этап %s в системных инструкциях, даже когда обычный промпт выключен',
+    async (phase) => {
+      process.env.DEEPSEEK_API_KEY = 'test-secret';
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            deepSeekStream([
+              'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+            ]),
+          ),
+        );
+      vi.stubGlobal('fetch', fetchMock);
+      const state: TaskState = {
+        title: 'Отчёт',
+        goal: 'Подготовить отчёт',
+        phase,
+        expectedAction: 'Проверить результат',
+        awaitingConfirmation: false,
+        paused: false,
+        updatedAt: 1,
+      };
+      const messages = [
+        { role: 'assistant', content: 'Мы уже на проверке' },
+        { role: 'user', content: 'Проверь и заверши задачу' },
+      ];
+
+      const response = await POST(
+        chatRequest(messages, 'text', null, {
+          useSystemPrompt: false,
+          taskState: state,
+          profile: 'Пиши кратко',
+          longTermMemory: [
+            {
+              key: 'предпочтение',
+              value: 'Развёрнутые ответы',
+              kind: 'profile',
+            },
+          ],
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      await response.text();
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const upstream = JSON.parse(init.body as string) as {
+        input: Array<{ role: string; content: string }>;
+        instructions: string;
+      };
+      if (phase === 'planning') {
+        expect(upstream.input).toEqual(messages);
+      } else {
+        expect(upstream.input.slice(0, -2)).toEqual(messages.slice(0, -1));
+        expect(upstream.input.at(-2)).toEqual({
+          role: 'user',
+          content: expect.stringContaining(
+            'Служебное событие приложения: пользователь подтвердил результат',
+          ),
+        });
+        expect(upstream.input.at(-1)).toEqual(messages.at(-1));
+      }
+      expect(upstream.instructions).toContain(`"phase":"${phase}"`);
+      expect(upstream.instructions).toContain(
+        'Этап меняется только после явного подтверждения пользователем',
+      );
+      if (phase !== 'done') {
+        expect(upstream.instructions).toContain('Не предлагай перескочить через этап');
+      }
+      if (phase === 'execution') {
+        expect(upstream.instructions).toContain(
+          'Не требуй этого подтверждения повторно',
+        );
+      }
+      expect(upstream.instructions.indexOf('Пиши кратко')).toBeLessThan(
+        upstream.instructions.indexOf('Состояние задачи (JSON)'),
+      );
+    },
+  );
+
+  it('передаёт подтверждённый этап и в структурированном запросе', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(deepSeekResponse('{"ok":true}'));
+    vi.stubGlobal('fetch', fetchMock);
+    const messages = [{ role: 'user', content: 'Верни JSON' }];
+
+    const response = await POST(
+      chatRequest(messages, 'json', null, {
+        useSystemPrompt: false,
+        taskState: {
+          title: 'Отчёт',
+          goal: 'Подготовить отчёт',
+          phase: 'execution',
+          expectedAction: 'Проверить черновик',
+          awaitingConfirmation: false,
+          paused: false,
+          updatedAt: 1,
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const upstream = JSON.parse(init.body as string) as {
+      input: Array<{ role: string; content: string }>;
+      instructions: string;
+    };
+    expect(upstream.input.at(-2)?.content).toContain(
+      'пользователь подтвердил результат planning',
+    );
+    expect(upstream.input.at(-1)).toEqual(messages[0]);
+    expect(upstream.instructions).toContain('"phase":"execution"');
   });
 
   it('отклоняет неизвестный формат ответа', async () => {

@@ -34,6 +34,11 @@ import {
   normalizeProfileText,
 } from '@/lib/user-profile';
 import {
+  buildTaskStateSystemPrompt,
+  buildTaskTransitionMessage,
+  restoreTaskState,
+} from '@/lib/task-state';
+import {
   isStructuredOutputFormat,
   type StructuredOutputFormat,
   validateStructuredOutput,
@@ -336,6 +341,21 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
+  const taskState =
+    body.taskState === undefined ? null : restoreTaskState(body.taskState);
+  if (body.taskState !== undefined && !taskState) {
+    return jsonError(400, {
+      code: 'invalid_task_state',
+      message: 'Состояние задачи передано некорректно.',
+    });
+  }
+  const transitionMessage = taskState
+    ? buildTaskTransitionMessage(taskState)
+    : null;
+  const requestMessages = transitionMessage
+    ? [...body.messages.slice(0, -1), transitionMessage, body.messages.at(-1)!]
+    : body.messages;
+
   const profile =
     body.profile === undefined ? '' : normalizeProfileText(body.profile);
   if (body.profile !== undefined && profile === null) {
@@ -367,14 +387,15 @@ export async function POST(request: Request): Promise<Response> {
     body.longTermMemory ?? [],
   );
   const profilePrompt = profile ? buildUserProfileSystemPrompt(profile) : null;
+  const taskPrompt = taskState ? buildTaskStateSystemPrompt(taskState) : null;
   const systemPrompt =
-    [configuredPrompt, profilePrompt, longTermPrompt]
+    [configuredPrompt, profilePrompt, longTermPrompt, taskPrompt]
       .filter(Boolean)
       .join('\n\n') || null;
 
   const overflowResponse = contextWindowError({
     contextWindowTokens,
-    messages: body.messages,
+    messages: requestMessages,
     systemPrompt,
   });
 
@@ -395,7 +416,7 @@ export async function POST(request: Request): Promise<Response> {
       contextWindowTokens,
       format: outputFormat,
       maxOutputTokens,
-      messages: body.messages,
+      messages: requestMessages,
       model,
       signal: request.signal,
       systemPrompt,
@@ -414,7 +435,7 @@ export async function POST(request: Request): Promise<Response> {
       },
       body: JSON.stringify({
         model,
-        input: body.messages,
+        input: requestMessages,
         max_output_tokens: maxOutputTokens,
         temperature,
         stream: true,

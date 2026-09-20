@@ -43,13 +43,18 @@ import {
   loadGeneralProfile,
   normalizeProfileText,
 } from '@/lib/user-profile';
+import { restoreTaskState } from '@/lib/task-state';
 
-export const AGENT_SESSIONS_STORAGE_KEY = 'deepseek-chat:agent-sessions:v1';
+export const AGENT_SESSIONS_STORAGE_KEY = 'deepseek-chat:agent-sessions:v2';
+const PREVIOUS_AGENT_SESSIONS_STORAGE_KEY = 'deepseek-chat:agent-sessions:v1';
+const AGENT_SESSIONS_RESET_KEY =
+  'deepseek-chat:agent-sessions:reset-2026-09-18';
 
 const STORAGE_VERSION = 2;
 const MAX_CONTEXT_SUMMARY_LENGTH = 20_000;
 
-type StorageReader = Pick<Storage, 'getItem'>;
+type StorageReader = Pick<Storage, 'getItem'> &
+  Partial<Pick<Storage, 'removeItem' | 'setItem'>>;
 type StorageWriter = Pick<Storage, 'setItem'>;
 
 interface StoredAgentSessions {
@@ -298,6 +303,9 @@ function restoreMessage(value: unknown): ChatMessage | null {
     id: value.id,
     role: value.role,
     content: value.content,
+    ...(value.source === 'task-control' || value.source === 'task-transition'
+      ? { source: value.source }
+      : {}),
     status,
     ...(format === undefined ? {} : { format }),
     ...(attachments.length ? { attachments } : {}),
@@ -329,6 +337,7 @@ function restoreBranches(value: unknown): AgentBranch[] | null {
     seenIds.add(item.id);
     const workingMemory = restoreMemoryEntries(item.workingMemory, 'working');
     const facts = sanitizeFacts(item.facts);
+    const taskState = restoreTaskState(item.taskState);
     branches.push({
       id: item.id,
       name: item.name,
@@ -338,6 +347,7 @@ function restoreBranches(value: unknown): AgentBranch[] | null {
       }),
       ...(workingMemory.length ? { workingMemory } : {}),
       ...(facts ? { facts } : {}),
+      ...(taskState ? { taskState } : {}),
       ...(typeof item.memoryCutoffMessageId === 'string'
         ? { memoryCutoffMessageId: item.memoryCutoffMessageId }
         : {}),
@@ -379,6 +389,7 @@ function restoreAgent(
   });
   const contextSummary = restoreContextSummary(value.contextSummary);
   const facts = sanitizeFacts(value.facts) ?? {};
+  const taskState = restoreTaskState(value.taskState);
   const memoryCutoffMessageId =
     typeof value.memoryCutoffMessageId === 'string'
       ? value.memoryCutoffMessageId
@@ -405,10 +416,12 @@ function restoreAgent(
     value.name,
     {
       id: value.id,
+      kind: value.kind === 'task' ? 'task' : 'agent',
       createdAt: value.createdAt,
       messages,
       contextSummary,
       facts,
+      taskState,
       memoryCutoffMessageId,
       memoryLayers,
       branches,
@@ -518,6 +531,22 @@ export function deserializeAgentSessions(
 export function loadAgentSessions(
   storage: StorageReader,
 ): RestoredAgentSessions {
+  // One-time user-requested reset. A live HMR page may have copied old state
+  // into the new key, so clear both versions before restoring anything.
+  // General Profile has a separate key and is deliberately untouched.
+  try {
+    if (
+      storage.getItem(AGENT_SESSIONS_RESET_KEY) !== 'done' &&
+      storage.removeItem &&
+      storage.setItem
+    ) {
+      storage.removeItem(PREVIOUS_AGENT_SESSIONS_STORAGE_KEY);
+      storage.removeItem(AGENT_SESSIONS_STORAGE_KEY);
+      storage.setItem(AGENT_SESSIONS_RESET_KEY, 'done');
+    }
+  } catch {
+    // Storage can be unavailable (private mode); normal empty restore follows.
+  }
   try {
     return deserializeAgentSessions(
       storage.getItem(AGENT_SESSIONS_STORAGE_KEY),

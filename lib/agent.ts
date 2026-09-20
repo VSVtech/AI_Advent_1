@@ -30,6 +30,19 @@ import {
   validateAttachmentFiles,
 } from '@/lib/file-attachments';
 import { readChatStream } from '@/lib/read-chat-stream';
+import { classifyTaskConfirmation } from '@/lib/task-confirmation';
+import {
+  isTaskConfirmation,
+  isTaskConfirmationEligible,
+  readTaskProgressFromAnswer,
+  reconcileTaskStateWithHistory,
+  restoreTaskState,
+  TASK_PHASES,
+  transitionTaskState,
+  TASK_PLAN_REQUEST,
+  type TaskState,
+  type TaskStateEvent,
+} from '@/lib/task-state';
 import { MemoryCurator } from '@/lib/memory-curator';
 import {
   buildSessionMemoryMessage,
@@ -86,6 +99,7 @@ export interface AgentBranch {
   workingMemory?: MemoryEntry[];
   facts?: MemoryFacts;
   memoryCutoffMessageId?: string | null;
+  taskState?: TaskState | null;
 }
 
 export interface AgentMemorySnapshot extends EditableMemoryLayers {
@@ -95,6 +109,7 @@ export interface AgentMemorySnapshot extends EditableMemoryLayers {
 export interface PersistedAgentState {
   id: string;
   name: string;
+  kind?: 'agent' | 'task';
   config: AgentConfig;
   createdAt: number;
   messages: ChatMessage[];
@@ -102,6 +117,7 @@ export interface PersistedAgentState {
   memoryLayers?: { working: MemoryEntry[]; longTerm?: MemoryEntry[] };
   facts?: MemoryFacts;
   memoryCutoffMessageId?: string | null;
+  taskState?: TaskState | null;
   branches?: AgentBranch[];
   activeBranchId?: string;
   checkpointMessageId?: string | null;
@@ -117,7 +133,9 @@ type RestoredAgentState = Pick<
     Pick<
       PersistedAgentState,
       | 'facts'
+      | 'kind'
       | 'memoryCutoffMessageId'
+      | 'taskState'
       | 'memoryLayers'
       | 'branches'
       | 'activeBranchId'
@@ -197,10 +215,18 @@ function toContextApiMessages(
   messages: ChatMessage[],
   branchSummary?: string,
 ): ApiChatMessage[] {
+  // UI commands are one-shot. Keep the command being sent now, but do not
+  // replay an old "wait for confirmation" request after the task advances.
+  const currentMessage = messages.at(-1);
+  const dialogueMessages = messages.filter(
+    (message) =>
+      message.source !== 'task-transition' &&
+      (message.source !== 'task-control' || message === currentMessage),
+  );
   const recentMessages =
     strategy === 'sliding-window' || strategy === 'sticky-facts'
-      ? messages.slice(-RECENT_CONTEXT_MESSAGE_LIMIT)
-      : messages;
+      ? dialogueMessages.slice(-RECENT_CONTEXT_MESSAGE_LIMIT)
+      : dialogueMessages;
   const apiMessages = toApiMessages(recentMessages);
   let contextMessages = apiMessages;
   if (strategy === 'branching' && branchSummary) {
@@ -213,11 +239,18 @@ function toContextApiMessages(
     ];
   }
   const memoryMessage = buildSessionMemoryMessage(memory);
-  return memoryMessage ? [memoryMessage, ...contextMessages] : contextMessages;
+  return [memoryMessage, ...contextMessages].filter(
+    (message): message is ApiChatMessage => message !== null,
+  );
 }
 
 function dialogueTranscript(messages: ChatMessage[]): string {
   return messages
+    .filter(
+      (message) =>
+        message.source !== 'task-control' &&
+        message.source !== 'task-transition',
+    )
     .map((message) => {
       const sections = [
         `${message.role === 'user' ? 'Пользователь' : 'Ассистент'}: ${message.content}`,
@@ -312,6 +345,7 @@ export function createDefaultAgentConfig(): AgentConfig {
 export class Agent {
   readonly id: string;
   readonly name: string;
+  readonly kind: 'agent' | 'task';
   readonly config: AgentConfig;
   readonly createdAt: number;
 
@@ -322,6 +356,7 @@ export class Agent {
   private readonly unsubscribeLongTermMemory: () => void;
   private readonly memoryCurator = new MemoryCurator();
   private facts: MemoryFacts = {};
+  private taskState: TaskState | null = null;
   private memoryCutoffMessageId: string | null = null;
   private isAnalyzingMemory = false;
   private memoryError: string | null = null;
@@ -341,8 +376,10 @@ export class Agent {
     restoredState?: RestoredAgentState,
     sharedLongTermMemory?: SharedLongTermMemory,
     getGeneralProfile?: () => string,
+    kind: 'agent' | 'task' = 'agent',
   ) {
     this.id = restoredState?.id ?? createId();
+    this.kind = restoredState?.kind === 'task' ? 'task' : kind;
     this.config = { ...config };
     this.getGeneralProfile = getGeneralProfile ?? (() => '');
     this.createdAt = restoredState?.createdAt ?? Date.now();
@@ -357,6 +394,7 @@ export class Agent {
       sharedLongTermMemory ??
       new SharedLongTermMemory(restoredState?.memoryLayers?.longTerm);
     this.facts = sanitizeFacts(restoredState?.facts) ?? {};
+    this.taskState = restoreTaskState(restoredState?.taskState);
     this.memoryCutoffMessageId =
       restoredState?.memoryCutoffMessageId &&
       this.messages.some(
@@ -389,6 +427,11 @@ export class Agent {
               branch.id === restoredState.activeBranchId
                 ? { ...this.facts }
                 : (sanitizeFacts(branch.facts) ?? {}),
+            taskState:
+              branch.taskState === undefined &&
+              branch.id === restoredState.activeBranchId
+                ? this.taskState
+                : restoreTaskState(branch.taskState),
             memoryCutoffMessageId:
               branch.memoryCutoffMessageId &&
               branch.messages.some(
@@ -408,6 +451,7 @@ export class Agent {
               messages: this.messages,
               workingMemory: this.workingMemory,
               facts: { ...this.facts },
+              taskState: this.taskState,
               memoryCutoffMessageId: this.memoryCutoffMessageId,
             },
           ];
@@ -426,6 +470,9 @@ export class Agent {
         ...(this.branches.find((branch) => branch.id === this.activeBranchId)!
           .facts ?? this.facts),
       };
+      this.taskState =
+        this.branches.find((branch) => branch.id === this.activeBranchId)
+          ?.taskState ?? null;
       this.memoryCutoffMessageId =
         this.branches.find((branch) => branch.id === this.activeBranchId)
           ?.memoryCutoffMessageId ?? null;
@@ -437,6 +484,11 @@ export class Agent {
           ? restoredState.checkpointMessageId
           : null;
     }
+    this.taskState = reconcileTaskStateWithHistory(this.taskState, this.messages);
+    const activeTaskBranch = this.branches.find(
+      (branch) => branch.id === this.activeBranchId,
+    );
+    if (activeTaskBranch) activeTaskBranch.taskState = this.taskState;
     this.snapshot = {
       messages: this.messages,
       isGenerating: false,
@@ -458,6 +510,32 @@ export class Agent {
 
   getFacts(): MemoryFacts {
     return { ...this.facts };
+  }
+
+  getTaskState(): TaskState | null {
+    return this.taskState ? { ...this.taskState } : null;
+  }
+
+  private isTaskConversation(): boolean {
+    return this.kind === 'task' || this.taskState !== null;
+  }
+
+  dispatchTaskState(event: TaskStateEvent): boolean {
+    if (
+      this.isGenerating &&
+      event.type !== 'pause' &&
+      event.type !== 'propose' &&
+      event.type !== 'confirm'
+    ) {
+      return false;
+    }
+    const next = transitionTaskState(this.taskState, event);
+    if (next === undefined) return false;
+    if (event.type === 'pause') this.abortController?.abort();
+    this.taskState = next;
+    this.error = null;
+    this.notify();
+    return true;
   }
 
   getMemoryAnalysisStatus(): { analyzing: boolean; error: string | null } {
@@ -616,6 +694,10 @@ export class Agent {
     const prefix = this.messages.slice(0, checkpointIndex + 1);
     const inheritedFacts =
       checkpointIndex === this.messages.length - 1 ? { ...this.facts } : {};
+    const inheritedTaskState =
+      checkpointIndex === this.messages.length - 1 && this.taskState
+        ? { ...this.taskState }
+        : null;
     const inheritedCutoff = prefix.some(
       (message) => message.id === this.memoryCutoffMessageId,
     )
@@ -632,6 +714,7 @@ export class Agent {
         messages: prefix.map(cloneMessage),
         workingMemory: this.workingMemory.map((entry) => ({ ...entry })),
         facts: { ...inheritedFacts },
+        taskState: inheritedTaskState ? { ...inheritedTaskState } : null,
         memoryCutoffMessageId: inheritedCutoff,
         ...(inheritedSummary ? { summary: inheritedSummary } : {}),
       },
@@ -641,6 +724,7 @@ export class Agent {
         messages: prefix.map(cloneMessage),
         workingMemory: this.workingMemory.map((entry) => ({ ...entry })),
         facts: { ...inheritedFacts },
+        taskState: inheritedTaskState ? { ...inheritedTaskState } : null,
         memoryCutoffMessageId: inheritedCutoff,
         ...(inheritedSummary ? { summary: inheritedSummary } : {}),
       },
@@ -650,6 +734,7 @@ export class Agent {
     this.workingMemory =
       this.branches[this.branches.length - 2].workingMemory ?? [];
     this.facts = { ...inheritedFacts };
+    this.taskState = inheritedTaskState;
     this.memoryCutoffMessageId = inheritedCutoff;
     this.checkpointMessageId = null;
     this.error = null;
@@ -667,6 +752,8 @@ export class Agent {
     this.messages = branch.messages;
     this.workingMemory = branch.workingMemory ?? [];
     this.facts = { ...branch.facts };
+    this.taskState = branch.taskState ? { ...branch.taskState } : null;
+    this.taskState = reconcileTaskStateWithHistory(this.taskState, this.messages);
     this.memoryCutoffMessageId = branch.memoryCutoffMessageId ?? null;
     this.checkpointMessageId = null;
     this.error = null;
@@ -728,12 +815,14 @@ export class Agent {
         summary,
         workingMemory: [],
         facts: {},
+        taskState: null,
         memoryCutoffMessageId: null,
       });
       this.activeBranchId = id;
       this.messages = [];
       this.workingMemory = [];
       this.facts = {};
+      this.taskState = null;
       this.memoryCutoffMessageId = null;
       this.checkpointMessageId = null;
       this.notify();
@@ -759,6 +848,7 @@ export class Agent {
     return {
       id: this.id,
       name: this.name,
+      ...(this.kind === 'task' ? { kind: 'task' as const } : {}),
       config: { ...this.config },
       createdAt: this.createdAt,
       messages: this.messages.map((message) => cloneMessage(message)),
@@ -770,6 +860,7 @@ export class Agent {
           }
         : {}),
       facts: { ...this.facts },
+      ...(this.taskState ? { taskState: { ...this.taskState } } : {}),
       memoryCutoffMessageId: this.memoryCutoffMessageId,
       branches: this.branches.map((branch) => ({
         id: branch.id,
@@ -784,6 +875,7 @@ export class Agent {
           : {}),
         ...(branch.summary ? { summary: branch.summary } : {}),
         facts: { ...branch.facts },
+        ...(branch.taskState ? { taskState: { ...branch.taskState } } : {}),
         memoryCutoffMessageId: branch.memoryCutoffMessageId ?? null,
       })),
       activeBranchId: this.activeBranchId,
@@ -800,6 +892,7 @@ export class Agent {
       activeBranch.messages = this.messages;
       activeBranch.workingMemory = this.workingMemory;
       activeBranch.facts = { ...this.facts };
+      activeBranch.taskState = this.taskState ? { ...this.taskState } : null;
       activeBranch.memoryCutoffMessageId = this.memoryCutoffMessageId;
     }
     this.snapshot = {
@@ -854,24 +947,30 @@ export class Agent {
   }
 
   private async updateMemory(signal: AbortSignal): Promise<void> {
+    const cutoffIndex = this.memoryCutoffMessageId
+      ? this.messages.findIndex(
+          (message) => message.id === this.memoryCutoffMessageId,
+        )
+      : -1;
+    const dialogue = this.messages
+      .slice(cutoffIndex + 1)
+      .filter(
+        (message) =>
+          message.source !== 'task-control' &&
+          message.source !== 'task-transition' &&
+          message.content.trim(),
+      )
+      .slice(-RECENT_CONTEXT_MESSAGE_LIMIT);
+    if (dialogue.length === 0) return;
+
     this.isAnalyzingMemory = true;
     this.memoryError = null;
     this.notify();
     try {
-      const cutoffIndex = this.memoryCutoffMessageId
-        ? this.messages.findIndex(
-            (message) => message.id === this.memoryCutoffMessageId,
-          )
-        : -1;
       const result = await this.memoryCurator.analyze({
         shortTerm: this.facts,
         longTerm: this.longTermMemory.getEntries(),
-        recentDialogue: dialogueTranscript(
-          this.messages
-            .slice(cutoffIndex + 1)
-            .filter((message) => message.content.trim())
-            .slice(-RECENT_CONTEXT_MESSAGE_LIMIT),
-        ),
+        recentDialogue: dialogueTranscript(dialogue),
         signal,
       });
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -1084,9 +1183,52 @@ export class Agent {
     );
   }
 
-  async sendMessage(content: string, files: File[] = []): Promise<void> {
+  requestTaskPlan(): Promise<void> {
+    if (this.kind !== 'task' || this.taskState?.phase !== 'planning') {
+      return Promise.resolve();
+    }
+    return this.sendMessage(TASK_PLAN_REQUEST, [], { source: 'task-control' });
+  }
+
+  async sendMessage(
+    content: string,
+    files: File[] = [],
+    options: { source?: ChatMessage['source'] } = {},
+  ): Promise<void> {
     const trimmed = content.trim();
     if ((!trimmed && files.length === 0) || this.isGenerating) return;
+    const reconciledState = reconcileTaskStateWithHistory(
+      this.taskState,
+      this.messages,
+    );
+    if (reconciledState !== this.taskState) {
+      this.taskState = reconciledState;
+      this.notify();
+    }
+    const nextTaskPhase = this.taskState
+      ? TASK_PHASES[TASK_PHASES.indexOf(this.taskState.phase) + 1]
+      : undefined;
+    if (
+      nextTaskPhase &&
+      trimmed.toLocaleLowerCase('ru-RU') === nextTaskPhase &&
+      !this.taskState?.awaitingConfirmation
+    ) {
+      this.error = `Переход к ${nextTaskPhase} пока не предложен. Сначала дождитесь результата текущего этапа и подтвердите его в диалоге.`;
+      this.notify();
+      return;
+    }
+    if (this.taskState && /^\/(?:этап|stage)(?:\s|$)/iu.test(trimmed)) {
+      this.error =
+        'Команда /этап больше не переключает задачу. Дождитесь предложения агента и подтвердите результат ответом в диалоге.';
+      this.notify();
+      return;
+    }
+    if (this.taskState?.paused) {
+      this.error =
+        'Задача на паузе. Нажмите «Продолжить задачу» перед отправкой.';
+      this.notify();
+      return;
+    }
 
     const exactContextTokens = this.latestExactContextTokens();
     const canRefreshCompressedContext =
@@ -1131,6 +1273,7 @@ export class Agent {
         id: createId(),
         role: 'user',
         content: messageContent,
+        ...(options.source ? { source: options.source } : {}),
         status: 'complete',
         ...(attachments.length ? { attachments } : {}),
         // Approximate token count of the visible request and text attachments
@@ -1148,7 +1291,51 @@ export class Agent {
       this.messages = [...this.messages, userMessage, assistantMessage];
       this.notify();
 
-      await this.updateMemory(controller.signal);
+      if (this.taskState?.awaitingConfirmation) {
+        const state = this.taskState;
+        const eligible =
+          !files.length && isTaskConfirmationEligible(trimmed, state.phase);
+        const locallyConfirmed =
+          eligible && isTaskConfirmation(trimmed, state.phase);
+        const semanticallyConfirmed =
+          eligible &&
+          !locallyConfirmed &&
+          (await classifyTaskConfirmation(
+            state,
+            trimmed,
+            this.messages
+              .filter(
+                (message) =>
+                  message.role === 'assistant' &&
+                  message.id !== assistantMessage.id,
+              )
+              .at(-1)?.content ?? '',
+            controller.signal,
+          ));
+        if (controller.signal.aborted) {
+          throw new DOMException('Aborted', 'AbortError');
+        }
+        if (locallyConfirmed || semanticallyConfirmed) {
+          this.dispatchTaskState({
+            type: 'confirm',
+            message: trimmed,
+            ...(semanticallyConfirmed ? { semanticConfirmed: true } : {}),
+          });
+        } else {
+          this.dispatchTaskState({
+            type: 'propose',
+            expectedAction: state.expectedAction,
+            awaitingConfirmation: false,
+          });
+        }
+      }
+
+      // Ordinary chats refresh memory before the request. For task chats,
+      // include the model's completed answer in curation after the request.
+      const curateAfterAnswer = this.isTaskConversation();
+      if (!curateAfterAnswer) {
+        await this.updateMemory(controller.signal);
+      }
       if (controller.signal.aborted) {
         throw new DOMException('Aborted', 'AbortError');
       }
@@ -1181,6 +1368,7 @@ export class Agent {
           messages: requestMessages,
           ...(profile ? { profile } : {}),
           ...(longTermMemory.length ? { longTermMemory } : {}),
+          ...(this.taskState ? { taskState: this.taskState } : {}),
           format: this.config.outputFormat,
           contextWindowTokens: this.config.contextWindowTokens,
           targetOutputTokens: this.config.targetOutputTokens,
@@ -1210,6 +1398,7 @@ export class Agent {
       }
 
       let completed = false;
+      let taskAnswerComplete = false;
       let exactInputTokens: number | undefined;
 
       await readChatStream(response.body, (event: ChatStreamEvent) => {
@@ -1220,6 +1409,7 @@ export class Agent {
           }));
         } else if (event.type === 'done') {
           completed = true;
+          taskAnswerComplete = event.finishReason !== 'length';
           exactInputTokens = event.inputTokens;
           this.updateAssistant(assistantMessage.id, (message) => ({
             ...message,
@@ -1247,6 +1437,26 @@ export class Agent {
           ...message,
           status: 'complete',
         }));
+      }
+
+      if (this.taskState && taskAnswerComplete && !controller.signal.aborted) {
+        const finalAnswer = this.messages.find(
+          (message) => message.id === assistantMessage.id,
+        );
+        const progress = finalAnswer
+          ? readTaskProgressFromAnswer(finalAnswer.content, this.taskState.phase)
+          : null;
+        if (this.taskState.phase !== 'done') {
+          this.dispatchTaskState({
+            type: 'propose',
+            expectedAction: progress?.expectedAction ?? null,
+            awaitingConfirmation: progress?.awaitingConfirmation ?? false,
+          });
+        }
+      }
+
+      if (curateAfterAnswer && !controller.signal.aborted) {
+        await this.updateMemory(controller.signal);
       }
 
       if (

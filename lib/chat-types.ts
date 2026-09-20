@@ -1,4 +1,5 @@
 import type { LongTermMemoryFact } from '@/lib/memory-layers';
+import type { TaskState } from '@/lib/task-state';
 
 export type ChatRole = 'user' | 'assistant';
 
@@ -25,6 +26,9 @@ export interface ChatMessage {
   id: string;
   role: ChatRole;
   content: string;
+  // Technical task messages are visible in the chat but excluded from memory.
+  // Only the initial task-control prompt is sent to the model once.
+  source?: 'task-control' | 'task-transition';
   status?: ChatMessageStatus;
   format?: ChatOutputFormat;
   attachments?: ChatAttachment[];
@@ -55,6 +59,8 @@ export interface ChatRequest {
   profile?: string;
   // Structured shared memory is converted to system instructions by the API.
   longTermMemory?: LongTermMemoryFact[];
+  // Technical task state is sent separately from dialogue and memory.
+  taskState?: TaskState;
   format?: ChatOutputFormat;
   // Artificial input-context window used to reproduce overflow with models
   // whose real context window is impractically large for a demo.

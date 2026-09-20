@@ -196,7 +196,8 @@ function MemoryPanelContents({ agent }: { agent: Agent }) {
             </SectionHeading>
             <p className="mb-3 text-sm leading-5 text-white/45">
               Важные факты текущего диалога, извлечённые отдельным агентом.
-              История сообщений хранится отдельно в чате.
+              История сообщений хранится отдельно в чате. Служебные сообщения
+              состояния задачи не анализируются.
             </p>
             {memoryStatus.analyzing ? (
               <p className="mb-3 text-xs text-emerald-200/70">

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Agent, createDefaultAgentConfig } from '@/lib/agent';
 import { loadAgentSessions, saveAgentSessions } from '@/lib/agent-storage';
 import type { ChatRequest } from '@/lib/chat-types';
+import { MAX_FACT_VALUE_LENGTH } from '@/lib/context-strategy';
 import { MemoryCurator, parseMemoryCuration } from '@/lib/memory-curator';
 import { SharedLongTermMemory } from '@/lib/memory-layers';
 
@@ -265,8 +266,14 @@ describe('автоматическая память', () => {
   });
 
   it('отбрасывает некорректные или неподтверждённые поля JSON', () => {
-    expect(parseMemoryCuration({ shortTerm: [], longTerm: [] })).toBeNull();
-    expect(parseMemoryCuration({ shortTerm: {}, longTerm: 'oops' })).toBeNull();
+    expect(parseMemoryCuration({ shortTerm: [], longTerm: [] })).toEqual({
+      shortTerm: {},
+      longTerm: [],
+    });
+    expect(parseMemoryCuration({ shortTerm: {}, longTerm: 'oops' })).toEqual({
+      shortTerm: {},
+      longTerm: [],
+    });
     expect(
       parseMemoryCuration({
         shortTerm: { цель: 'ТЗ' },
@@ -279,5 +286,84 @@ describe('автоматическая память', () => {
       shortTerm: { цель: 'ТЗ' },
       longTerm: [{ key: 'язык', value: 'Русский', kind: 'profile' }],
     });
+  });
+
+  it('нормализует полезные факты и не отклоняет весь ответ из-за одного неверного поля', () => {
+    expect(
+      parseMemoryCuration({
+        shortTerm: {
+          количество: 3,
+          готово: true,
+          продукты: ['свёкла', 'капуста'],
+          подробность: 'x'.repeat(MAX_FACT_VALUE_LENGTH + 20),
+          сомнительное: { nested: 'value' },
+          ['__proto__']: 'нельзя сохранять',
+        },
+        longTerm: { key: 'язык', value: 'Русский', kind: 'profile' },
+      }),
+    ).toEqual({
+      shortTerm: {
+        количество: '3',
+        готово: 'true',
+        продукты: 'свёкла, капуста',
+        подробность: 'x'.repeat(MAX_FACT_VALUE_LENGTH),
+      },
+      longTerm: [{ key: 'язык', value: 'Русский', kind: 'profile' }],
+    });
+    expect(
+      parseMemoryCuration({
+        shortTerm: [{ key: 'цель', value: 'Сварить борщ' }],
+      }),
+    ).toEqual({ shortTerm: { цель: 'Сварить борщ' }, longTerm: [] });
+    expect(parseMemoryCuration({ shortTerm: { только: {} } })).toBeNull();
+  });
+
+  it('один раз повторяет запрос, если модель пропустила схему памяти', async () => {
+    const requests: ChatRequest[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((_url, init: RequestInit) => {
+        requests.push(JSON.parse(init.body as string) as ChatRequest);
+        return Promise.resolve(
+          response(
+            requests.length === 1
+              ? '{"facts":{"цель":"ТЗ"}}'
+              : '{"shortTerm":{"цель":"ТЗ"},"longTerm":[]}',
+          ),
+        );
+      }),
+    );
+
+    const result = await new MemoryCurator().analyze({
+      shortTerm: {},
+      longTerm: [],
+      recentDialogue: 'Пользователь: Собираем ТЗ',
+      signal: new AbortController().signal,
+    });
+
+    expect(result.shortTerm).toEqual({ цель: 'ТЗ' });
+    expect(requests).toHaveLength(2);
+    expect(requests[1].messages[0].content).toContain(
+      'Предыдущий ответ не соответствовал схеме памяти',
+    );
+  });
+
+  it('не принимает два подряд ответа без краткосрочного слоя', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(response('{"facts":{"цель":"ТЗ"}}')),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      new MemoryCurator().analyze({
+        shortTerm: { цель: 'Старая цель' },
+        longTerm: [],
+        recentDialogue: 'Пользователь: Новая цель',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('дважды вернул ответ без корректного блока shortTerm');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

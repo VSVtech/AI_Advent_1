@@ -5,13 +5,17 @@ import { CirclePause, CirclePlay, ListTodo } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAgentSnapshot } from '@/hooks/use-agent';
 import type { Agent } from '@/lib/agent';
-import { TASK_PHASES } from '@/lib/task-state';
+import { TASK_PHASES, TASK_TRANSITIONS } from '@/lib/task-state';
 
 export function AgentTaskStatePanel({ agent }: { agent: Agent }) {
   const { isGenerating } = useAgentSnapshot(agent);
   const state = agent.getTaskState();
   const phaseIndex = state ? TASK_PHASES.indexOf(state.phase) : -1;
-  const nextPhase = TASK_PHASES[phaseIndex + 1];
+  const proposedPhase = state
+    ? TASK_TRANSITIONS[state.phase][
+        state.pendingRollback ? 'backward' : 'forward'
+      ]
+    : null;
 
   return (
     <section
@@ -61,11 +65,21 @@ export function AgentTaskStatePanel({ agent }: { agent: Agent }) {
               </dd>
             </div>
           </dl>
-          {state.awaitingConfirmation && nextPhase ? (
+          {state.awaitingConfirmation && proposedPhase ? (
             <p className="mt-3 rounded-xl border border-emerald-300/20 bg-emerald-300/5 px-3 py-2 text-xs leading-5 text-emerald-100/85">
-              Агент предложил переход к {nextPhase}. Если результат текущего
-              этапа вас устраивает, подтвердите его своими словами в диалоге.
-              Этап изменится после вашего сообщения.
+              {state.pendingRollback ? (
+                <>
+                  Агент предложил вернуться к {proposedPhase} для исправления
+                  ошибки. Подтвердите откат своими словами в диалоге. До
+                  подтверждения активен {state.phase}.
+                </>
+              ) : (
+                <>
+                  Агент предложил переход к {proposedPhase}. Если результат
+                  текущего этапа вас устраивает, подтвердите его своими словами
+                  в диалоге. Этап изменится после вашего сообщения.
+                </>
+              )}
             </p>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2">

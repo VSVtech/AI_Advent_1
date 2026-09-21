@@ -42,7 +42,7 @@ export interface ChatMessage {
   cachedContextTokens?: number;
   // Точное число выходных токенов ответа модели.
   outputTokens?: number;
-  // Токены дополнительных вызовов для проверки и исправления инвариантов.
+  // Токены дополнительных вызовов для проверки этапа и инвариантов.
   invariantInputTokens?: number;
   invariantOutputTokens?: number;
 }

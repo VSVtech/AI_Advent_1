@@ -229,7 +229,7 @@ function formatTokenStats({
     invariantOutputTokens !== undefined
   ) {
     parts.push(
-      `доп. вызовы для инвариантов: вход ${invariantInputTokens ?? '—'}, выход ${invariantOutputTokens ?? '—'}`,
+      `доп. вызовы для проверки этапа/инвариантов: вход ${invariantInputTokens ?? '—'}, выход ${invariantOutputTokens ?? '—'}`,
     );
   }
 

@@ -389,7 +389,7 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  if (taskState?.invariants.length && systemPrompt) {
+  if (taskState && systemPrompt) {
     return generateInvariantSafeOutput({
       apiKey,
       contextWindowTokens,

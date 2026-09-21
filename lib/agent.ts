@@ -34,10 +34,14 @@ import { classifyTaskConfirmation } from '@/lib/task-confirmation';
 import {
   isTaskConfirmation,
   isTaskConfirmationEligible,
+  isTaskRollbackConfirmation,
+  isTaskRollbackConfirmationEligible,
   readTaskProgressFromAnswer,
+  readTaskRollbackFromAnswer,
   reconcileTaskStateWithHistory,
   restoreTaskState,
   TASK_PHASES,
+  TASK_TRANSITIONS,
   transitionTaskState,
   TASK_PLAN_REQUEST,
   type TaskState,
@@ -532,6 +536,7 @@ export class Agent {
       this.isGenerating &&
       event.type !== 'pause' &&
       event.type !== 'propose' &&
+      event.type !== 'proposeRollback' &&
       event.type !== 'confirm'
     ) {
       return false;
@@ -1218,14 +1223,40 @@ export class Agent {
       this.notify();
     }
     const nextTaskPhase = this.taskState
-      ? TASK_PHASES[TASK_PHASES.indexOf(this.taskState.phase) + 1]
-      : undefined;
+      ? TASK_TRANSITIONS[this.taskState.phase].forward
+      : null;
+    const previousTaskPhase = this.taskState
+      ? TASK_TRANSITIONS[this.taskState.phase].backward
+      : null;
+    const requestedPhase = TASK_PHASES.find(
+      (phase) => phase === trimmed.toLocaleLowerCase('ru-RU'),
+    );
+    if (
+      this.taskState &&
+      requestedPhase &&
+      requestedPhase !== this.taskState.phase &&
+      requestedPhase !== nextTaskPhase &&
+      requestedPhase !== previousTaskPhase
+    ) {
+      this.error = `Недопустимый переход ${this.taskState.phase} → ${requestedPhase}: нельзя перескочить этап. Доступны только соседние этапы после предложения и подтверждения в диалоге.`;
+      this.notify();
+      return;
+    }
     if (
       nextTaskPhase &&
       trimmed.toLocaleLowerCase('ru-RU') === nextTaskPhase &&
-      !this.taskState?.awaitingConfirmation
+      (!this.taskState?.awaitingConfirmation || this.taskState.pendingRollback)
     ) {
       this.error = `Переход к ${nextTaskPhase} пока не предложен. Сначала дождитесь результата текущего этапа и подтвердите его в диалоге.`;
+      this.notify();
+      return;
+    }
+    if (
+      previousTaskPhase &&
+      trimmed.toLocaleLowerCase('ru-RU') === previousTaskPhase &&
+      (!this.taskState?.awaitingConfirmation || !this.taskState.pendingRollback)
+    ) {
+      this.error = `Откат к ${previousTaskPhase} пока не предложен. Опишите ошибку предыдущего этапа; агент предложит возврат, который вы подтвердите в диалоге.`;
       this.notify();
       return;
     }
@@ -1306,9 +1337,15 @@ export class Agent {
       if (this.taskState?.awaitingConfirmation) {
         const state = this.taskState;
         const eligible =
-          !files.length && isTaskConfirmationEligible(trimmed, state.phase);
+          !files.length &&
+          (state.pendingRollback
+            ? isTaskRollbackConfirmationEligible(trimmed, state.phase)
+            : isTaskConfirmationEligible(trimmed, state.phase));
         const locallyConfirmed =
-          eligible && isTaskConfirmation(trimmed, state.phase);
+          eligible &&
+          (state.pendingRollback
+            ? isTaskRollbackConfirmation(trimmed, state.phase)
+            : isTaskConfirmation(trimmed, state.phase));
         const semanticallyConfirmed =
           eligible &&
           !locallyConfirmed &&
@@ -1461,13 +1498,21 @@ export class Agent {
         const finalAnswer = this.messages.find(
           (message) => message.id === assistantMessage.id,
         );
-        const progress = finalAnswer
-          ? readTaskProgressFromAnswer(
+        const rollback = finalAnswer
+          ? readTaskRollbackFromAnswer(
               finalAnswer.content,
               this.taskState.phase,
             )
           : null;
-        if (this.taskState.phase !== 'done') {
+        if (rollback) {
+          this.dispatchTaskState({ type: 'proposeRollback', ...rollback });
+        } else if (this.taskState.phase !== 'done') {
+          const progress = finalAnswer
+            ? readTaskProgressFromAnswer(
+                finalAnswer.content,
+                this.taskState.phase,
+              )
+            : null;
           this.dispatchTaskState({
             type: 'propose',
             expectedAction: progress?.expectedAction ?? null,

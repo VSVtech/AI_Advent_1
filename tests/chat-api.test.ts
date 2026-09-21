@@ -197,8 +197,15 @@ describe('POST /api/chat', () => {
     );
     const validation = JSON.parse(
       (fetchMock.mock.calls[1][1] as RequestInit).body as string,
-    ) as { input: Array<{ content: string }>; temperature: number };
+    ) as {
+      input: Array<{ content: string }>;
+      temperature: number;
+      instructions: string;
+    };
     expect(validation.temperature).toBe(0);
+    expect(validation.instructions).toContain(
+      'taskPhase — единственный источник активного этапа',
+    );
     expect(validation.input[0].content).toContain(
       'Решение только на PostgreSQL.',
     );
@@ -323,17 +330,198 @@ describe('POST /api/chat', () => {
     expect(body).not.toContain('Предлагаю MongoDB.');
   });
 
+  it('проверяет этап даже без инвариантов и исправляет преждевременную реализацию', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        deepSeekResponse('Реализация готова: я написал код.'),
+      )
+      .mockResolvedValueOnce(
+        deepSeekResponse(
+          '{"violated":true,"kind":"phase","reason":"На planning выполнена реализация"}',
+        ),
+      )
+      .mockResolvedValueOnce(
+        deepSeekResponse('Предлагаю план реализации, код пока не пишу.'),
+      )
+      .mockResolvedValueOnce(
+        deepSeekResponse(
+          '{"violated":false,"invariant_index":null,"reason":""}',
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await POST(
+      chatRequest(
+        [{ role: 'user', content: 'Сразу напиши код' }],
+        'text',
+        null,
+        {
+          taskState: {
+            phase: 'planning',
+            invariants: [],
+            expectedAction: null,
+            awaitingConfirmation: false,
+            paused: false,
+            updatedAt: 1,
+          },
+        },
+      ),
+    );
+    const body = await result.text();
+    expect(result.status).toBe(200);
+    expect(body).toContain('Предлагаю план реализации');
+    expect(body).not.toContain('Реализация готова');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const retry = JSON.parse(
+      (fetchMock.mock.calls[2][1] as RequestInit).body as string,
+    ) as { instructions: string };
+    expect(retry.instructions).toContain('На planning выполнена реализация');
+  });
+
+  it('считает подтверждённый откат достоверным состоянием, а предложение вперёд допустимым', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        deepSeekResponse(
+          'После подтверждённого отката исправила план.\nОжидаемое действие: подтвердите план.\nПредлагаю переход: planning → execution.',
+        ),
+      )
+      .mockResolvedValueOnce(
+        deepSeekResponse(
+          '{"violated":false,"invariant_index":null,"reason":""}',
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await POST(
+      chatRequest([{ role: 'user', content: 'Исправь план' }], 'text', null, {
+        taskState: {
+          phase: 'planning',
+          invariants: [],
+          expectedAction: null,
+          awaitingConfirmation: false,
+          paused: false,
+          updatedAt: 2,
+          historyRepairDisabled: true,
+          rollbackFrom: 'execution',
+          rollbackReason: 'План не реализуем',
+        },
+      }),
+    );
+    expect(result.status).toBe(200);
+    expect(await result.text()).toContain('planning → execution');
+    const validation = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as { input: Array<{ content: string }>; instructions: string };
+    const facts = JSON.parse(validation.input[0].content) as Record<
+      string,
+      unknown
+    >;
+    expect(facts.confirmedRollback).toEqual({
+      from: 'execution',
+      to: 'planning',
+    });
+    expect(facts).not.toHaveProperty('latestUserMessage');
+    expect(validation.instructions).toContain(
+      'Предложение будущего соседнего перехода',
+    );
+    expect(validation.instructions).toContain('откат УЖЕ произошёл');
+  });
+
+  it('не показывает предложение перескочить этап даже при положительном ответе валидатора', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        deepSeekResponse('Предлагаю переход: planning → validation.'),
+      )
+      .mockResolvedValueOnce(
+        deepSeekResponse(
+          'План готов.\nОжидаемое действие: утвердите план.\nПредлагаю переход: planning → execution.',
+        ),
+      )
+      .mockResolvedValueOnce(
+        deepSeekResponse(
+          '{"violated":false,"invariant_index":null,"reason":""}',
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await POST(
+      chatRequest(
+        [{ role: 'user', content: 'Давай сразу проверять' }],
+        'text',
+        null,
+        {
+          taskState: {
+            phase: 'planning',
+            invariants: [],
+            expectedAction: null,
+            awaitingConfirmation: false,
+            paused: false,
+            updatedAt: 1,
+          },
+        },
+      ),
+    );
+    const body = await result.text();
+    expect(result.status).toBe(200);
+    expect(body).toContain('planning → execution');
+    expect(body).not.toContain('planning → validation');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('отказывает, если модель продолжает нарушать этап после повторных попыток', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as {
+        text: { format: { type: string } };
+      };
+      return Promise.resolve(
+        body.text.format.type === 'json_object'
+          ? deepSeekResponse(
+              '{"violated":true,"kind":"phase","reason":"Финал до подтверждённой валидации"}',
+            )
+          : deepSeekResponse('Задача завершена, проверка не нужна.'),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await POST(
+      chatRequest(
+        [{ role: 'user', content: 'Заверши без проверки' }],
+        'text',
+        null,
+        {
+          taskState: {
+            phase: 'validation',
+            invariants: [],
+            expectedAction: null,
+            awaitingConfirmation: false,
+            paused: false,
+            updatedAt: 1,
+          },
+        },
+      ),
+    );
+    expect(result.status).toBe(422);
+    const body = await result.text();
+    expect(body).toContain('task_phase_violation');
+    expect(body).not.toContain('Задача завершена, проверка не нужна.');
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
   it.each(TASK_PHASES)(
     'закрепляет этап %s в системных инструкциях, даже когда обычный промпт выключен',
     async (phase) => {
       process.env.DEEPSEEK_API_KEY = 'test-secret';
       const fetchMock = vi
         .fn()
-        .mockResolvedValue(
-          new Response(
-            deepSeekStream([
-              'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\n',
-            ]),
+        .mockResolvedValueOnce(deepSeekResponse('Работаю на текущем этапе.'))
+        .mockResolvedValueOnce(
+          deepSeekResponse(
+            '{"violated":false,"invariant_index":null,"reason":""}',
           ),
         );
       vi.stubGlobal('fetch', fetchMock);
@@ -388,7 +576,7 @@ describe('POST /api/chat', () => {
       }
       expect(upstream.instructions).toContain(`"phase":"${phase}"`);
       expect(upstream.instructions).toContain(
-        'Этап меняется только после явного подтверждения пользователем',
+        'только после явного подтверждения пользователя',
       );
       if (phase !== 'done') {
         expect(upstream.instructions).toContain(
@@ -410,7 +598,12 @@ describe('POST /api/chat', () => {
     process.env.DEEPSEEK_API_KEY = 'test-secret';
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(deepSeekResponse('{"ok":true}'));
+      .mockResolvedValueOnce(deepSeekResponse('{"ok":true}'))
+      .mockResolvedValueOnce(
+        deepSeekResponse(
+          '{"violated":false,"invariant_index":null,"reason":""}',
+        ),
+      );
     vi.stubGlobal('fetch', fetchMock);
     const messages = [{ role: 'user', content: 'Верни JSON' }];
 

@@ -16,14 +16,20 @@ import {
 import type { ChatRequest } from '@/lib/chat-types';
 import {
   buildTaskStateSystemPrompt,
+  canTransitionTaskPhase,
+  invalidTaskTransitionProposal,
   isTaskConfirmation,
   isTaskConfirmationEligible,
+  isTaskRollbackConfirmation,
   MAX_TASK_INVARIANTS,
   normalizeTaskInvariants,
   readTaskProgressFromAnswer,
+  readTaskRollbackFromAnswer,
+  reconcileTaskStateWithHistory,
   restoreTaskState,
   TASK_PHASES,
   TASK_PLAN_REQUEST,
+  TASK_TRANSITIONS,
   transitionTaskState,
   type TaskState,
 } from '@/lib/task-state';
@@ -227,9 +233,141 @@ describe('конечный автомат состояния задачи', () =
     expect(transitionTaskState(state, { type: 'reset' })).toBeNull();
   });
 
+  it('разрешает только соседние переходы и отвергает перескакивание', () => {
+    expect(TASK_TRANSITIONS).toEqual({
+      planning: { forward: 'execution', backward: null },
+      execution: { forward: 'validation', backward: 'planning' },
+      validation: { forward: 'done', backward: 'execution' },
+      done: { forward: null, backward: 'validation' },
+    });
+    expect(canTransitionTaskPhase('planning', 'validation', 'forward')).toBe(
+      false,
+    );
+    expect(canTransitionTaskPhase('validation', 'planning', 'backward')).toBe(
+      false,
+    );
+    expect(
+      invalidTaskTransitionProposal(
+        'Предлагаю переход: planning → validation.',
+        'planning',
+      ),
+    ).toContain('недопустимый');
+    expect(
+      invalidTaskTransitionProposal(
+        'Предлагаю откат: validation → planning.',
+        'validation',
+      ),
+    ).toContain('недопустимый');
+    expect(
+      invalidTaskTransitionProposal(
+        'Предлагаю откат: validation → execution.',
+        'validation',
+      ),
+    ).toBeNull();
+    expect(
+      readTaskRollbackFromAnswer(
+        'Обнаружена ошибка.\n**Предлагаю откат:** validation → execution.',
+        'validation',
+      )?.target,
+    ).toBe('execution');
+  });
+
+  it.each([
+    ['execution', 'planning'],
+    ['validation', 'execution'],
+    ['done', 'validation'],
+  ] as const)(
+    'подтверждает откат %s → %s на один этап, а не выполняет его по предложению',
+    (phase, target) => {
+      let state = transitionTaskState(
+        null,
+        { type: 'start', title: 'Задача', goal: 'Проверить результат' },
+        1,
+      ) as TaskState;
+      while (state.phase !== phase) {
+        state = transitionTaskState(state, {
+          type: 'propose',
+          expectedAction: 'Подтвердите результат',
+          awaitingConfirmation: true,
+        }) as TaskState;
+        state = transitionTaskState(state, {
+          type: 'confirm',
+          message: 'Да',
+        }) as TaskState;
+      }
+      if (phase !== 'execution') {
+        expect(
+          transitionTaskState(state, {
+            type: 'proposeRollback',
+            target: 'planning',
+            reason: 'Ошибка',
+          }),
+        ).toBeUndefined();
+      }
+      const proposed = transitionTaskState(state, {
+        type: 'proposeRollback',
+        target,
+        reason: 'Предыдущий этап оказался ошибочным',
+      }) as TaskState;
+      expect(proposed).toMatchObject({
+        phase,
+        pendingRollback: true,
+        awaitingConfirmation: true,
+      });
+      expect(
+        transitionTaskState(proposed, { type: 'confirm', message: 'Нет' }),
+      ).toBeUndefined();
+      const paused = transitionTaskState(proposed, {
+        type: 'pause',
+      }) as TaskState;
+      expect(
+        transitionTaskState(paused, { type: 'confirm', message: 'Да' }),
+      ).toBeUndefined();
+      const restored = restoreTaskState(
+        JSON.parse(JSON.stringify(paused)),
+      ) as TaskState;
+      expect(restored.pendingRollback).toBe(true);
+      const resumed = transitionTaskState(restored, {
+        type: 'resume',
+      }) as TaskState;
+      const rolledBack = transitionTaskState(resumed, {
+        type: 'confirm',
+        message: 'Да, откатываемся назад',
+      }) as TaskState;
+      expect(rolledBack).toMatchObject({
+        phase: target,
+        rollbackFrom: phase,
+        historyRepairDisabled: true,
+        awaitingConfirmation: false,
+      });
+      expect(isTaskRollbackConfirmation('Нет, оставь как есть', phase)).toBe(
+        false,
+      );
+      expect(
+        restoreTaskState(JSON.parse(JSON.stringify(rolledBack))),
+      ).toMatchObject({
+        phase: target,
+        rollbackFrom: phase,
+        historyRepairDisabled: true,
+      });
+      const reapproved = transitionTaskState(
+        transitionTaskState(rolledBack, {
+          type: 'propose',
+          expectedAction: 'Утвердить исправленный результат',
+          awaitingConfirmation: true,
+        }) as TaskState,
+        { type: 'confirm', message: 'Подтверждаю' },
+      ) as TaskState;
+      expect(reapproved.phase).toBe(phase);
+      expect(reapproved.rollbackFrom).toBeUndefined();
+    },
+  );
+
   it('распознаёт только осмысленное подтверждение результата, не просьбу начать следующий этап', () => {
     expect(isTaskConfirmation('Да', 'planning')).toBe(true);
     expect(isTaskConfirmation('«Подтверждаю»', 'planning')).toBe(true);
+    expect(isTaskConfirmation('давай', 'planning')).toBe(true);
+    expect(isTaskConfirmation('давай попробуем', 'planning')).toBe(false);
     expect(isTaskConfirmation('План подтверждаю, правок нет', 'planning')).toBe(
       true,
     );
@@ -259,6 +397,9 @@ describe('конечный автомат состояния задачи', () =
       false,
     );
     expect(isTaskConfirmation('План не устраивает', 'planning')).toBe(false);
+    expect(
+      isTaskConfirmation('Подтверждаю, давай доработаем план', 'planning'),
+    ).toBe(false);
     expect(
       isTaskConfirmationEligible('План подтверждаю, правок нет', 'planning'),
     ).toBe(true);
@@ -433,6 +574,12 @@ describe('конечный автомат состояния задачи', () =
     });
     expect(
       readTaskProgressFromAnswer(
+        'План приготовления борща готов.\nОжидаемое действие: подтвердите план своими словами или уточните вид мяса на кости, кислоту и капусту, чтобы я доработал его перед переходом.',
+        'planning',
+      ),
+    ).toMatchObject({ awaitingConfirmation: true });
+    expect(
+      readTaskProgressFromAnswer(
         'Задача завершена, дополнительных действий не требуется.',
         'validation',
       ),
@@ -447,6 +594,221 @@ describe('конечный автомат состояния задачи', () =
         'validation',
       ),
     ).toBeNull();
+  });
+
+  it('принимает подтверждение плана без технической строки перехода до вызова модели', async () => {
+    const task = makeTask('Борщ', 'Приготовить борщ');
+    const { requests } = mockTaskReplies(
+      'План: подготовить продукты, сварить бульон, добавить овощи.\nОжидаемое действие: подтвердите план своими словами или уточните детали, чтобы я доработал его перед переходом.',
+      'Приступаю к приготовлению по утверждённому плану.',
+    );
+    await task.sendMessage('Предложи план борща');
+    expect(task.getTaskState()).toMatchObject({
+      phase: 'planning',
+      awaitingConfirmation: true,
+    });
+    await task.sendMessage('подтверждаю. Давай варить');
+    expect(task.getTaskState()?.phase).toBe('execution');
+    expect(
+      requests
+        .find((request) => request.taskState?.phase === 'execution')
+        ?.messages.at(-1),
+    ).toEqual({ role: 'user', content: 'подтверждаю. Давай варить' });
+    expect(isTaskConfirmation('подтверждаю. Давай варить', 'planning')).toBe(
+      true,
+    );
+  });
+
+  it('после ошибки ответа восстанавливает уже отправленное подтверждение плана', () => {
+    const taskState: TaskState = {
+      title: 'Борщ',
+      goal: 'Приготовить борщ',
+      invariants: [],
+      phase: 'planning',
+      expectedAction: 'подтвердите план своими словами',
+      awaitingConfirmation: false,
+      paused: false,
+      updatedAt: 1,
+    };
+    const restored = new Agent(
+      createDefaultAgentConfig(),
+      'Борщ',
+      {
+        id: 'failed-approval',
+        createdAt: 1,
+        taskState,
+        messages: [
+          {
+            id: 'plan',
+            role: 'assistant',
+            content:
+              'План борща готов.\nОжидаемое действие: подтвердите план своими словами, чтобы перейти дальше.',
+            status: 'complete',
+          },
+          {
+            id: 'approval',
+            role: 'user',
+            content: 'подтверждаю. Давай варить',
+            status: 'complete',
+          },
+        ],
+      },
+      undefined,
+      undefined,
+      'task',
+    );
+    expect(restored.getTaskState()?.phase).toBe('execution');
+    expect(buildTaskStateSystemPrompt(restored.getTaskState()!)).toContain(
+      '"phase":"execution"',
+    );
+  });
+
+  it('после отката восстанавливает согласие с новым планом, но не повторяет старое подтверждение отката', () => {
+    const state: TaskState = {
+      title: 'Борщ',
+      goal: 'Исправить план борща',
+      invariants: [],
+      phase: 'planning',
+      expectedAction: null,
+      awaitingConfirmation: false,
+      paused: false,
+      updatedAt: 2,
+      historyRepairDisabled: true,
+      rollbackFrom: 'execution',
+      rollbackReason: 'Невозможно выполнить прежний план',
+    };
+    const messages = [
+      {
+        id: 'rollback-proposal',
+        role: 'assistant' as const,
+        content: 'План невыполним.\nПредлагаю откат: execution → planning.',
+        status: 'complete' as const,
+      },
+      {
+        id: 'rollback-confirmation',
+        role: 'user' as const,
+        content: 'Да, откатываемся назад',
+        status: 'complete' as const,
+      },
+    ];
+    expect(reconcileTaskStateWithHistory(state, messages)?.phase).toBe(
+      'planning',
+    );
+    messages.push(
+      {
+        id: 'new-plan',
+        role: 'assistant',
+        content:
+          'Исправленный план готов.\nОжидаемое действие: подтвердите план.\nПредлагаю переход: planning → execution.',
+        status: 'complete',
+      },
+      {
+        id: 'new-approval',
+        role: 'user',
+        content: 'давай',
+        status: 'complete',
+      },
+    );
+    const restored = new Agent(
+      createDefaultAgentConfig(),
+      'Борщ',
+      {
+        id: 'post-rollback-failed-approval',
+        createdAt: 1,
+        taskState: state,
+        messages,
+      },
+      undefined,
+      undefined,
+      'task',
+    );
+    expect(restored.getTaskState()?.phase).toBe('execution');
+  });
+
+  it('предлагает откат при ошибке плана, сохраняет его и заново утверждает исправленный план', async () => {
+    const task = makeTask('Сервис', 'Реализовать сервис');
+    task.dispatchTaskState({
+      type: 'propose',
+      expectedAction: 'Утвердите план',
+      awaitingConfirmation: true,
+    });
+    task.dispatchTaskState({ type: 'confirm', message: 'Подтверждаю' });
+    const { requests } = mockTaskReplies(
+      'Ранее утверждённый план не реализуем: нужный API недоступен. Продолжать реализацию нельзя. Подтвердите возврат для исправления плана.\nПредлагаю откат: execution → planning.',
+      'Исправленный план использует доступный API.\nОжидаемое действие: утвердите исправленный план.\nПредлагаю переход: planning → execution.',
+      'Приступаю к реализации исправленного плана.',
+    );
+    await task.sendMessage('В API нет нужного метода, план не реализуем');
+    expect(
+      readTaskRollbackFromAnswer(
+        task.getSnapshot().messages.at(-1)!.content,
+        'execution',
+      )?.target,
+    ).toBe('planning');
+    expect(task.getTaskState()).toMatchObject({
+      phase: 'execution',
+      pendingRollback: true,
+      awaitingConfirmation: true,
+    });
+    const saved = JSON.stringify(task.exportState());
+    const restored = new Agent(
+      createDefaultAgentConfig(),
+      'Сервис',
+      JSON.parse(saved),
+      undefined,
+      undefined,
+      'task',
+    );
+    expect(restored.getTaskState()?.pendingRollback).toBe(true);
+    await restored.sendMessage('Да, откатываемся назад');
+    expect(restored.getTaskState()).toMatchObject({
+      phase: 'planning',
+      rollbackFrom: 'execution',
+      awaitingConfirmation: true,
+    });
+    expect(
+      requests.find(
+        (request) => request.taskState?.rollbackFrom === 'execution',
+      )?.taskState?.phase,
+    ).toBe('planning');
+    expect(
+      reconcileTaskStateWithHistory(
+        restored.getTaskState(),
+        restored.getSnapshot().messages,
+      )?.phase,
+    ).toBe('planning');
+    await restored.sendMessage('давай');
+    expect(restored.getTaskState()?.phase).toBe('execution');
+    expect(
+      requests
+        .findLast((request) => request.taskState?.phase === 'execution')
+        ?.messages.at(-1),
+    ).toEqual({ role: 'user', content: 'давай' });
+  });
+
+  it('не откатывает этап при отказе пользователя от предложенного возврата', async () => {
+    const task = makeTask();
+    task.dispatchTaskState({
+      type: 'propose',
+      expectedAction: 'Утвердите план',
+      awaitingConfirmation: true,
+    });
+    task.dispatchTaskState({ type: 'confirm', message: 'Да' });
+    task.dispatchTaskState({
+      type: 'proposeRollback',
+      target: 'planning',
+      reason: 'План не реализуем',
+    });
+    const { requests } = mockTaskReplies('Уточним причину блокировки.');
+    await task.sendMessage('Нет, не откатывай');
+    expect(task.getTaskState()).toMatchObject({
+      phase: 'execution',
+      awaitingConfirmation: false,
+    });
+    expect(task.getTaskState()?.pendingRollback).toBeUndefined();
+    expect(
+      requests.find((request) => request.taskState)?.taskState?.phase,
+    ).toBe('execution');
   });
 
   it('после предложения в одной строке принимает done и отправляет новый этап модели', async () => {
@@ -614,6 +976,12 @@ describe('конечный автомат состояния задачи', () =
     expect(fetchMock).not.toHaveBeenCalled();
     await task.sendMessage('execution');
     expect(task.getSnapshot().error).toContain('пока не предложен');
+    expect(fetchMock).not.toHaveBeenCalled();
+    await task.sendMessage('validation');
+    expect(task.getSnapshot().error).toContain('нельзя перескочить этап');
+    expect(fetchMock).not.toHaveBeenCalled();
+    await task.sendMessage('done');
+    expect(task.getSnapshot().error).toContain('нельзя перескочить этап');
     expect(fetchMock).not.toHaveBeenCalled();
     await task.sendMessage('Начинай выполнение');
     expect(task.getTaskState()?.phase).toBe('planning');
@@ -837,5 +1205,28 @@ describe('конечный автомат состояния задачи', () =
     expect(workspace).toContain('Согласовать требования');
     expect(workspace).toContain('Не использовать MongoDB');
     expect(workspace).not.toContain('Перейти:');
+  });
+
+  it('показывает в интерфейсе, что обратный переход ожидает подтверждения', () => {
+    const task = makeTask();
+    task.dispatchTaskState({
+      type: 'propose',
+      expectedAction: 'Утвердить план',
+      awaitingConfirmation: true,
+    });
+    task.dispatchTaskState({ type: 'confirm', message: 'Да' });
+    task.dispatchTaskState({
+      type: 'proposeRollback',
+      target: 'planning',
+      reason: 'План невыполним',
+    });
+    const markup = renderToStaticMarkup(
+      createElement(AgentTaskStatePanel, { agent: task }),
+    );
+    expect(markup).toContain('вернуться к');
+    expect(markup).toContain('planning');
+    expect(markup).toContain('Подтвердите откат своими словами');
+    expect(markup).toContain('активен');
+    expect(task.getTaskState()?.phase).toBe('execution');
   });
 });

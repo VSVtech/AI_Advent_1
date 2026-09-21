@@ -355,7 +355,7 @@ describe('Agent', () => {
         .mockResolvedValue(
           sseResponse([
             'event: delta\ndata: {"content":"Ответ"}\n\n',
-            'event: done\ndata: {"finishReason":"stop","outputTokens":5,"inputTokens":120,"cachedInputTokens":40}\n\n',
+            'event: done\ndata: {"finishReason":"stop","outputTokens":5,"inputTokens":120,"cachedInputTokens":40,"invariantInputTokens":31,"invariantOutputTokens":7}\n\n',
           ]),
         ),
     );
@@ -369,6 +369,8 @@ describe('Agent', () => {
       outputTokens: 5,
       contextTokens: 120,
       cachedContextTokens: 40,
+      invariantInputTokens: 31,
+      invariantOutputTokens: 7,
     });
   });
 

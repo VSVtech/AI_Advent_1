@@ -38,6 +38,8 @@ function parseEventBlock(block: string): ChatStreamEvent | null {
     const outputTokens = data.outputTokens;
     const inputTokens = data.inputTokens;
     const cachedInputTokens = data.cachedInputTokens;
+    const invariantInputTokens = data.invariantInputTokens;
+    const invariantOutputTokens = data.invariantOutputTokens;
     const isNonNegativeInt = (value: unknown): value is number =>
       typeof value === 'number' && Number.isInteger(value) && value >= 0;
 
@@ -48,6 +50,12 @@ function parseEventBlock(block: string): ChatStreamEvent | null {
       ...(isNonNegativeInt(outputTokens) ? { outputTokens } : {}),
       ...(isNonNegativeInt(inputTokens) ? { inputTokens } : {}),
       ...(isNonNegativeInt(cachedInputTokens) ? { cachedInputTokens } : {}),
+      ...(isNonNegativeInt(invariantInputTokens)
+        ? { invariantInputTokens }
+        : {}),
+      ...(isNonNegativeInt(invariantOutputTokens)
+        ? { invariantOutputTokens }
+        : {}),
     };
   }
 

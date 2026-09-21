@@ -55,6 +55,21 @@ export function TaskWorkspace({
           </p>
         </section>
 
+        {state?.invariants.length ? (
+          <section className="border-b border-white/10 px-4 py-5 sm:px-6">
+            <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-emerald-300/75">
+              Инварианты
+            </h2>
+            <ul className="mt-3 list-inside list-disc space-y-2 text-sm leading-6 text-white/80">
+              {state.invariants.map((invariant, index) => (
+                <li key={`${invariant}-${index}`} className="break-words">
+                  {invariant}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         <AgentTaskStatePanel key={agent.getActiveBranchId()} agent={agent} />
 
         <section className="space-y-3 px-4 py-5 sm:px-6">

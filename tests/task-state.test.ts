@@ -18,6 +18,8 @@ import {
   buildTaskStateSystemPrompt,
   isTaskConfirmation,
   isTaskConfirmationEligible,
+  MAX_TASK_INVARIANTS,
+  normalizeTaskInvariants,
   readTaskProgressFromAnswer,
   restoreTaskState,
   TASK_PHASES,
@@ -45,7 +47,11 @@ function response(content: string): Response {
   );
 }
 
-function makeTask(title = 'Отчёт', goal = 'Подготовить отчёт'): Agent {
+function makeTask(
+  title = 'Отчёт',
+  goal = 'Подготовить отчёт',
+  invariants: string[] = [],
+): Agent {
   const task = new Agent(
     createDefaultAgentConfig(),
     title,
@@ -54,7 +60,9 @@ function makeTask(title = 'Отчёт', goal = 'Подготовить отчё�
     undefined,
     'task',
   );
-  expect(task.dispatchTaskState({ type: 'start', title, goal })).toBe(true);
+  expect(
+    task.dispatchTaskState({ type: 'start', title, goal, invariants }),
+  ).toBe(true);
   return task;
 }
 
@@ -81,6 +89,78 @@ function mockTaskReplies(...answers: string[]) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('конечный автомат состояния задачи', () => {
+  it('хранит инварианты отдельно от диалога и восстанавливает их без изменения', () => {
+    const state = transitionTaskState(
+      null,
+      {
+        type: 'start',
+        title: 'Сервис',
+        goal: 'Спроектировать хранение',
+        invariants: ['  Только PostgreSQL  ', 'Не хранить персональные данные'],
+      },
+      1,
+    ) as TaskState;
+    expect(state.invariants).toEqual([
+      'Только PostgreSQL',
+      'Не хранить персональные данные',
+    ]);
+    expect(restoreTaskState(JSON.parse(JSON.stringify(state)))).toEqual(state);
+    expect(buildTaskStateSystemPrompt(state)).toContain(
+      'Если запрос несовместим с инвариантом',
+    );
+    expect(buildTaskStateSystemPrompt(state)).toContain('1. Только PostgreSQL');
+    expect(transitionTaskState(state, { type: 'pause' })?.invariants).toEqual(
+      state.invariants,
+    );
+    expect(
+      transitionTaskState(
+        state,
+        {
+          type: 'propose',
+          expectedAction: 'Подтвердить план',
+          awaitingConfirmation: true,
+        },
+        2,
+      )?.invariants,
+    ).toEqual(state.invariants);
+  });
+
+  it('отклоняет пустые, повторяющиеся и слишком длинные инварианты', () => {
+    expect(normalizeTaskInvariants([])).toEqual([]);
+    expect(normalizeTaskInvariants([' '])).toBeNull();
+    expect(normalizeTaskInvariants(['PostgreSQL', 'postgresql'])).toBeNull();
+    expect(normalizeTaskInvariants(['Первая\nВторая'])).toBeNull();
+    expect(
+      normalizeTaskInvariants(Array(MAX_TASK_INVARIANTS + 1).fill('x')),
+    ).toBeNull();
+    expect(
+      transitionTaskState(null, {
+        type: 'start',
+        title: 'Сервис',
+        goal: 'Сделать',
+        invariants: [' ', 'Только PostgreSQL'],
+      }),
+    ).toBeUndefined();
+    expect(
+      restoreTaskState({
+        phase: 'planning',
+        paused: false,
+        updatedAt: 1,
+        invariants: ['Один', 'один'],
+      }),
+    ).toBeNull();
+  });
+
+  it('не позволяет изменить инварианты через снимок состояния агента', () => {
+    const task = makeTask('Сервис', 'Сделать сервис', [
+      'Использовать только PostgreSQL',
+    ]);
+    task.getTaskState()!.invariants[0] = 'Использовать MongoDB';
+    expect(task.getTaskState()?.invariants).toEqual([
+      'Использовать только PostgreSQL',
+    ]);
+  });
+
   it('считает текущим шагом активный этап и переходит только после предложения и подтверждения', () => {
     let state = transitionTaskState(
       null,
@@ -403,6 +483,7 @@ describe('конечный автомат состояния задачи', () =
     const taskState: TaskState = {
       title: 'Борщ',
       goal: 'Приготовить борщ',
+      invariants: [],
       phase: 'validation',
       expectedAction: null,
       awaitingConfirmation: false,
@@ -561,6 +642,7 @@ describe('конечный автомат состояния задачи', () =
     ).toEqual({
       title: 'Отчёт',
       goal: 'Подготовить отчёт',
+      invariants: [],
       phase: 'execution',
       expectedAction: null,
       awaitingConfirmation: false,
@@ -578,7 +660,9 @@ describe('конечный автомат состояния задачи', () =
       getItem: (key: string) => values.get(key) ?? null,
       setItem: (key: string, value: string) => values.set(key, value),
     };
-    const task = makeTask();
+    const task = makeTask('Отчёт', 'Подготовить отчёт', [
+      'Использовать только PostgreSQL',
+    ]);
     task.dispatchTaskState({
       type: 'propose',
       expectedAction: 'Проверьте план',
@@ -589,6 +673,7 @@ describe('конечный автомат состояния задачи', () =
     const restored = loadAgentSessions(storage).agents[0];
     expect(restored.getTaskState()).toMatchObject({
       phase: 'planning',
+      invariants: ['Использовать только PostgreSQL'],
       expectedAction: 'Проверьте план',
       awaitingConfirmation: true,
       paused: true,
@@ -604,13 +689,18 @@ describe('конечный автомат состояния задачи', () =
     expect(requests.find((request) => request.taskState)?.taskState?.goal).toBe(
       'Подготовить отчёт',
     );
+    expect(
+      requests.find((request) => request.taskState)?.taskState?.invariants,
+    ).toEqual(['Использовать только PostgreSQL']);
     expect(buildTaskStateSystemPrompt(restored.getTaskState()!)).toContain(
       'Пользователь уже подтвердил результат planning',
     );
   });
 
   it('исключает технический запрос плана из памяти, но сохраняет обычное подтверждение', async () => {
-    const task = makeTask();
+    const task = makeTask('Отчёт', 'Подготовить отчёт', [
+      'Использовать только PostgreSQL',
+    ]);
     const { requests } = mockTaskReplies(
       'План готов.\nОжидаемое действие: проверьте план.\nПредлагаю переход: planning → execution.',
       'Начинаю работу.\nОжидаемое действие: сообщите детали.',
@@ -628,6 +718,7 @@ describe('конечный автомат состояния задачи', () =
     const memoryContent = memoryRequests.at(-1)?.messages[0]?.content;
     const memoryPrompt = typeof memoryContent === 'string' ? memoryContent : '';
     expect(memoryPrompt).not.toContain(TASK_PLAN_REQUEST);
+    expect(memoryPrompt).not.toContain('Использовать только PostgreSQL');
     expect(memoryPrompt).toContain('Пользователь: Подтверждаю');
     expect(memoryPrompt).toContain('Ассистент: Начинаю работу.');
   });
@@ -694,7 +785,9 @@ describe('конечный автомат состояния задачи', () =
   });
 
   it('показывает английские этапы и не предлагает кнопку смены этапа', () => {
-    const task = makeTask('ТЗ', 'Согласовать требования');
+    const task = makeTask('ТЗ', 'Согласовать требования', [
+      'Не использовать MongoDB',
+    ]);
     task.dispatchTaskState({
       type: 'propose',
       expectedAction: 'Проверьте план требований',
@@ -727,11 +820,13 @@ describe('конечный автомат состояния задачи', () =
       }),
     );
     expect(sidebar).toContain('Создать задачу');
-    expect(
-      renderToStaticMarkup(
-        createElement(TaskSetup, { onCreate: () => {}, onCancel: () => {} }),
-      ),
-    ).toContain('Название задачи');
+    const setup = renderToStaticMarkup(
+      createElement(TaskSetup, { onCreate: () => {}, onCancel: () => {} }),
+    );
+    expect(setup).toContain('Название задачи');
+    expect(setup).toContain('Инварианты задачи');
+    expect(setup).toContain('Добавить');
+    expect(setup).not.toContain('Добавленные инварианты');
     const workspace = renderToStaticMarkup(
       createElement(TaskWorkspace, {
         agent: task,
@@ -740,6 +835,7 @@ describe('конечный автомат состояния задачи', () =
       }),
     );
     expect(workspace).toContain('Согласовать требования');
+    expect(workspace).toContain('Не использовать MongoDB');
     expect(workspace).not.toContain('Перейти:');
   });
 });

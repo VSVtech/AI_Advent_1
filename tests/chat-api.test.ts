@@ -49,10 +49,17 @@ function deepSeekStream(chunks: string[]): ReadableStream<Uint8Array> {
   });
 }
 
-function deepSeekResponse(content: string, outputTokens = 12): Response {
+function deepSeekResponse(
+  content: string,
+  outputTokens = 12,
+  inputTokens?: number,
+): Response {
   return Response.json({
     status: 'completed',
-    usage: { output_tokens: outputTokens },
+    usage: {
+      output_tokens: outputTokens,
+      ...(inputTokens === undefined ? {} : { input_tokens: inputTokens }),
+    },
     output: [
       {
         type: 'message',
@@ -113,6 +120,209 @@ describe('POST /api/chat', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('отклоняет некорректный список инвариантов до вызова модели', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Продолжи' }], 'text', null, {
+        taskState: {
+          title: 'Сервис',
+          goal: 'Сделать сервис',
+          phase: 'planning',
+          invariants: ['PostgreSQL', 'postgresql'],
+          expectedAction: null,
+          awaitingConfirmation: false,
+          paused: false,
+          updatedAt: 1,
+        },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('проверяет ответ на инварианты до выдачи и сохраняет их при выключенном обычном промпте', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        deepSeekResponse('Решение только на PostgreSQL.', 12, 40),
+      )
+      .mockResolvedValueOnce(
+        deepSeekResponse(
+          '{"violated":false,"invariant_index":null,"reason":""}',
+          5,
+          20,
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest(
+        [{ role: 'user', content: 'Предложи хранилище' }],
+        'text',
+        null,
+        {
+          useSystemPrompt: false,
+          taskState: {
+            title: 'Сервис',
+            goal: 'Спроектировать хранение',
+            phase: 'planning',
+            invariants: ['Использовать только PostgreSQL'],
+            expectedAction: null,
+            awaitingConfirmation: false,
+            paused: false,
+            updatedAt: 1,
+          },
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    const responseBody = await response.text();
+    expect(responseBody).toContain('Решение только на PostgreSQL.');
+    expect(responseBody).toContain('"inputTokens":40');
+    expect(responseBody).toContain('"invariantInputTokens":20');
+    expect(responseBody).toContain('"invariantOutputTokens":5');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const generation = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    ) as { stream: boolean; instructions: string };
+    expect(generation.stream).toBe(false);
+    expect(generation.instructions).toContain(
+      '1. Использовать только PostgreSQL',
+    );
+    const validation = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    ) as { input: Array<{ content: string }>; temperature: number };
+    expect(validation.temperature).toBe(0);
+    expect(validation.input[0].content).toContain(
+      'Решение только на PostgreSQL.',
+    );
+  });
+
+  it('скрывает нарушающий ответ и повторяет запрос с причиной нарушения', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(deepSeekResponse('Предлагаю MongoDB.'))
+      .mockResolvedValueOnce(
+        deepSeekResponse(
+          '{"violated":true,"invariant_index":1,"reason":"MongoDB нарушает ограничение на PostgreSQL"}',
+        ),
+      )
+      .mockResolvedValueOnce(
+        deepSeekResponse(
+          'Не могу предложить MongoDB: задача требует только PostgreSQL. Используем PostgreSQL.',
+        ),
+      )
+      .mockResolvedValueOnce(
+        deepSeekResponse(
+          '{"violated":false,"invariant_index":null,"reason":""}',
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest(
+        [{ role: 'user', content: 'Перейди на MongoDB' }],
+        'text',
+        null,
+        {
+          taskState: {
+            title: 'Сервис',
+            goal: 'Спроектировать хранение',
+            phase: 'execution',
+            invariants: ['Использовать только PostgreSQL'],
+            expectedAction: null,
+            awaitingConfirmation: false,
+            paused: false,
+            updatedAt: 1,
+          },
+        },
+      ),
+    );
+
+    const body = await response.text();
+    expect(response.status).toBe(200);
+    expect(body).toContain('Не могу предложить MongoDB');
+    expect(body).not.toContain('Предлагаю MongoDB.');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const retry = JSON.parse(
+      (fetchMock.mock.calls[2][1] as RequestInit).body as string,
+    ) as { instructions: string };
+    expect(retry.instructions).toContain(
+      'MongoDB нарушает ограничение на PostgreSQL',
+    );
+  });
+
+  it('после повторных нарушений выдаёт безопасный отказ вместо нарушающего ответа', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as {
+        text: { format: { type: string } };
+      };
+      return Promise.resolve(
+        body.text.format.type === 'json_object'
+          ? deepSeekResponse(
+              '{"violated":true,"invariant_index":1,"reason":"Нельзя менять PostgreSQL на MongoDB"}',
+            )
+          : deepSeekResponse('Предлагаю MongoDB.'),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Замени БД' }], 'text', null, {
+        taskState: {
+          phase: 'planning',
+          invariants: ['Использовать только PostgreSQL'],
+          expectedAction: null,
+          awaitingConfirmation: false,
+          paused: false,
+          updatedAt: 1,
+        },
+      }),
+    );
+
+    const body = await response.text();
+    expect(response.status).toBe(200);
+    expect(body).toContain('Не могу выполнить запрос');
+    expect(body).toContain('Использовать только PostgreSQL');
+    expect(body).not.toContain('Предлагаю MongoDB.');
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it('не показывает непроверенный ответ при ошибке валидатора', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(deepSeekResponse('Предлагаю MongoDB.'))
+      .mockResolvedValueOnce(deepSeekResponse('не JSON'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      chatRequest([{ role: 'user', content: 'Замени БД' }], 'text', null, {
+        taskState: {
+          phase: 'planning',
+          invariants: ['Использовать только PostgreSQL'],
+          expectedAction: null,
+          awaitingConfirmation: false,
+          paused: false,
+          updatedAt: 1,
+        },
+      }),
+    );
+
+    expect(response.status).toBe(502);
+    const body = await response.text();
+    expect(body).toContain('invariant_validation_failed');
+    expect(body).not.toContain('Предлагаю MongoDB.');
+  });
+
   it.each(TASK_PHASES)(
     'закрепляет этап %s в системных инструкциях, даже когда обычный промпт выключен',
     async (phase) => {
@@ -130,6 +340,7 @@ describe('POST /api/chat', () => {
       const state: TaskState = {
         title: 'Отчёт',
         goal: 'Подготовить отчёт',
+        invariants: [],
         phase,
         expectedAction: 'Проверить результат',
         awaitingConfirmation: false,
@@ -180,7 +391,9 @@ describe('POST /api/chat', () => {
         'Этап меняется только после явного подтверждения пользователем',
       );
       if (phase !== 'done') {
-        expect(upstream.instructions).toContain('Не предлагай перескочить через этап');
+        expect(upstream.instructions).toContain(
+          'Не предлагай перескочить через этап',
+        );
       }
       if (phase === 'execution') {
         expect(upstream.instructions).toContain(

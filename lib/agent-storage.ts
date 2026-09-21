@@ -271,6 +271,8 @@ function restoreMessage(value: unknown): ChatMessage | null {
   const contextTokens = restoreTokenCount(value.contextTokens);
   const cachedContextTokens = restoreTokenCount(value.cachedContextTokens);
   const outputTokens = restoreTokenCount(value.outputTokens);
+  const invariantInputTokens = restoreTokenCount(value.invariantInputTokens);
+  const invariantOutputTokens = restoreTokenCount(value.invariantOutputTokens);
   const restoredAttachments =
     value.role === 'user' && Array.isArray(value.attachments)
       ? value.attachments.flatMap((attachment) => {
@@ -313,6 +315,8 @@ function restoreMessage(value: unknown): ChatMessage | null {
     ...(contextTokens === undefined ? {} : { contextTokens }),
     ...(cachedContextTokens === undefined ? {} : { cachedContextTokens }),
     ...(outputTokens === undefined ? {} : { outputTokens }),
+    ...(invariantInputTokens === undefined ? {} : { invariantInputTokens }),
+    ...(invariantOutputTokens === undefined ? {} : { invariantOutputTokens }),
   };
 }
 

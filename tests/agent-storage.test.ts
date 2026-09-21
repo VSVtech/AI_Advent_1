@@ -69,6 +69,23 @@ function agentState(
 }
 
 describe('долговременное хранение сессий агентов', () => {
+  it('сохраняет токены проверки инвариантов отдельно от токенов ответа', () => {
+    const state = agentState();
+    state.messages[1].invariantInputTokens = 31;
+    state.messages[1].invariantOutputTokens = 7;
+
+    const restored = deserializeAgentSessions(
+      JSON.stringify({ version: 2, agents: [state], activeAgentId: state.id }),
+    );
+
+    expect(restored.agents[0].getSnapshot().messages[1]).toMatchObject({
+      contextTokens: 24,
+      outputTokens: 4,
+      invariantInputTokens: 31,
+      invariantOutputTokens: 7,
+    });
+  });
+
   it('однократно удаляет старые чаты и память, сохраняя General Profile', () => {
     const previousKey = 'deepseek-chat:agent-sessions:v1';
     const resetKey = 'deepseek-chat:agent-sessions:reset-2026-09-18';

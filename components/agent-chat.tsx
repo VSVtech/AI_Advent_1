@@ -194,12 +194,16 @@ function formatTokenStats({
   contextWindowTokens,
   cachedContextTokens,
   outputTokens,
+  invariantInputTokens,
+  invariantOutputTokens,
 }: {
   requestTokens: number | undefined;
   contextTokens: number | undefined;
   contextWindowTokens: number;
   cachedContextTokens: number | undefined;
   outputTokens: number | undefined;
+  invariantInputTokens: number | undefined;
+  invariantOutputTokens: number | undefined;
 }): string | null {
   const parts: string[] = [];
 
@@ -219,6 +223,14 @@ function formatTokenStats({
   }
   if (outputTokens !== undefined) {
     parts.push(`ответ ${outputTokens}`);
+  }
+  if (
+    invariantInputTokens !== undefined ||
+    invariantOutputTokens !== undefined
+  ) {
+    parts.push(
+      `доп. вызовы для инвариантов: вход ${invariantInputTokens ?? '—'}, выход ${invariantOutputTokens ?? '—'}`,
+    );
   }
 
   return parts.length ? `Токены: ${parts.join(' · ')}` : null;
@@ -614,6 +626,8 @@ export function AgentChat({
                         contextWindowTokens: agent.config.contextWindowTokens,
                         cachedContextTokens: message.cachedContextTokens,
                         outputTokens: message.outputTokens,
+                        invariantInputTokens: message.invariantInputTokens,
+                        invariantOutputTokens: message.invariantOutputTokens,
                       })
                     : null;
 

@@ -45,4 +45,24 @@ describe('readChatStream', () => {
       { type: 'error', code: 'stream_error', message: 'Ошибка' },
     ]);
   });
+
+  it('читает токены дополнительных вызовов проверки инвариантов', async () => {
+    const events: ChatStreamEvent[] = [];
+    const stream = streamFromChunks([
+      'event: done\ndata: {"finishReason":"stop","outputTokens":12,"inputTokens":40,"invariantInputTokens":20,"invariantOutputTokens":5}\n\n',
+    ]);
+
+    await readChatStream(stream, (event) => events.push(event));
+
+    expect(events).toEqual([
+      {
+        type: 'done',
+        finishReason: 'stop',
+        outputTokens: 12,
+        inputTokens: 40,
+        invariantInputTokens: 20,
+        invariantOutputTokens: 5,
+      },
+    ]);
+  });
 });

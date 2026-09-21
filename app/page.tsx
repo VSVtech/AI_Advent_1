@@ -119,7 +119,11 @@ export default function Home() {
     setView('task');
   };
 
-  const handleCreateTask = (title: string, goal: string) => {
+  const handleCreateTask = (
+    title: string,
+    goal: string,
+    invariants: string[],
+  ) => {
     const taskAgent = new Agent(
       createDefaultAgentConfig(),
       title,
@@ -132,6 +136,7 @@ export default function Home() {
       type: 'start',
       title,
       goal,
+      invariants,
     });
     if (!started) {
       taskAgent.dispose();

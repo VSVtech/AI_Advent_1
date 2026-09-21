@@ -42,6 +42,9 @@ export interface ChatMessage {
   cachedContextTokens?: number;
   // Точное число выходных токенов ответа модели.
   outputTokens?: number;
+  // Токены дополнительных вызовов для проверки и исправления инвариантов.
+  invariantInputTokens?: number;
+  invariantOutputTokens?: number;
 }
 
 export type ApiChatContentPart =
@@ -101,6 +104,8 @@ export type ChatStreamEvent =
       outputTokens?: number;
       inputTokens?: number;
       cachedInputTokens?: number;
+      invariantInputTokens?: number;
+      invariantOutputTokens?: number;
     }
   | { type: 'error'; code: string; message: string };
 

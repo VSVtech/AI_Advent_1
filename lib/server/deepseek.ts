@@ -277,6 +277,8 @@ export function completedOutputResponse(
     outputTokens: number | null;
     inputTokens?: number | null;
     cachedInputTokens?: number | null;
+    invariantInputTokens?: number | null;
+    invariantOutputTokens?: number | null;
   },
 ): Response {
   return eventStreamResponse(
@@ -297,6 +299,14 @@ export function completedOutputResponse(
             usage.cachedInputTokens === undefined
               ? {}
               : { cachedInputTokens: usage.cachedInputTokens }),
+            ...(usage.invariantInputTokens === null ||
+            usage.invariantInputTokens === undefined
+              ? {}
+              : { invariantInputTokens: usage.invariantInputTokens }),
+            ...(usage.invariantOutputTokens === null ||
+            usage.invariantOutputTokens === undefined
+              ? {}
+              : { invariantOutputTokens: usage.invariantOutputTokens }),
           }),
         );
         controller.close();

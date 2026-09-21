@@ -8,7 +8,6 @@ import {
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   DEFAULT_TARGET_OUTPUT_TOKENS,
   DEFAULT_TEMPERATURE,
-  estimateContextTokenCount,
   isValidContextWindowTokens,
   isValidMaxOutputTokens,
   isValidModel,
@@ -58,6 +57,8 @@ import {
   extractInputTokenUsage,
   extractOutputText,
 } from '@/lib/server/deepseek';
+import { contextWindowError } from '@/lib/server/context-window';
+import { generateInvariantSafeOutput } from '@/lib/server/task-invariants';
 
 const MAX_FORMAT_RETRIES = 3;
 
@@ -65,28 +66,6 @@ function isChatOutputFormat(value: unknown): value is ChatOutputFormat {
   return (
     value === 'text' || value === 'json' || value === 'xml' || value === 'yaml'
   );
-}
-
-function contextWindowError({
-  contextWindowTokens,
-  messages,
-  systemPrompt,
-}: {
-  contextWindowTokens: number;
-  messages: ApiChatMessage[];
-  systemPrompt: string | null;
-}): Response | null {
-  const estimatedInputTokens = estimateContextTokenCount(
-    messages,
-    systemPrompt,
-  );
-
-  if (estimatedInputTokens <= contextWindowTokens) return null;
-
-  return jsonError(413, {
-    code: 'context_window_exceeded',
-    message: `Контекст переполнен: история, память и инструкции занимают примерно ${estimatedInputTokens} токенов, а лимит агента — ${contextWindowTokens}. Увеличьте лимит или сократите контекст.`,
-  });
 }
 
 async function generateStructuredOutput({
@@ -407,6 +386,21 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(500, {
       code: 'configuration_error',
       message: 'DEEPSEEK_API_KEY не настроен. Добавьте токен в .env.local.',
+    });
+  }
+
+  if (taskState?.invariants.length && systemPrompt) {
+    return generateInvariantSafeOutput({
+      apiKey,
+      contextWindowTokens,
+      format: outputFormat,
+      maxOutputTokens,
+      messages: requestMessages,
+      model,
+      signal: request.signal,
+      state: taskState,
+      systemPrompt,
+      temperature,
     });
   }
 

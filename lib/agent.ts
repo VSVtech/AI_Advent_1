@@ -167,6 +167,10 @@ function cloneMessage(message: ChatMessage): ChatMessage {
   };
 }
 
+function cloneTaskState(state: TaskState | null): TaskState | null {
+  return state ? { ...state, invariants: [...state.invariants] } : null;
+}
+
 function attachmentText(attachment: ChatAttachment): string {
   return [
     `Начало файла ${JSON.stringify(attachment.name)}`,
@@ -484,7 +488,10 @@ export class Agent {
           ? restoredState.checkpointMessageId
           : null;
     }
-    this.taskState = reconcileTaskStateWithHistory(this.taskState, this.messages);
+    this.taskState = reconcileTaskStateWithHistory(
+      this.taskState,
+      this.messages,
+    );
     const activeTaskBranch = this.branches.find(
       (branch) => branch.id === this.activeBranchId,
     );
@@ -513,7 +520,7 @@ export class Agent {
   }
 
   getTaskState(): TaskState | null {
-    return this.taskState ? { ...this.taskState } : null;
+    return cloneTaskState(this.taskState);
   }
 
   private isTaskConversation(): boolean {
@@ -696,7 +703,7 @@ export class Agent {
       checkpointIndex === this.messages.length - 1 ? { ...this.facts } : {};
     const inheritedTaskState =
       checkpointIndex === this.messages.length - 1 && this.taskState
-        ? { ...this.taskState }
+        ? cloneTaskState(this.taskState)
         : null;
     const inheritedCutoff = prefix.some(
       (message) => message.id === this.memoryCutoffMessageId,
@@ -714,7 +721,7 @@ export class Agent {
         messages: prefix.map(cloneMessage),
         workingMemory: this.workingMemory.map((entry) => ({ ...entry })),
         facts: { ...inheritedFacts },
-        taskState: inheritedTaskState ? { ...inheritedTaskState } : null,
+        taskState: cloneTaskState(inheritedTaskState),
         memoryCutoffMessageId: inheritedCutoff,
         ...(inheritedSummary ? { summary: inheritedSummary } : {}),
       },
@@ -724,7 +731,7 @@ export class Agent {
         messages: prefix.map(cloneMessage),
         workingMemory: this.workingMemory.map((entry) => ({ ...entry })),
         facts: { ...inheritedFacts },
-        taskState: inheritedTaskState ? { ...inheritedTaskState } : null,
+        taskState: cloneTaskState(inheritedTaskState),
         memoryCutoffMessageId: inheritedCutoff,
         ...(inheritedSummary ? { summary: inheritedSummary } : {}),
       },
@@ -752,8 +759,11 @@ export class Agent {
     this.messages = branch.messages;
     this.workingMemory = branch.workingMemory ?? [];
     this.facts = { ...branch.facts };
-    this.taskState = branch.taskState ? { ...branch.taskState } : null;
-    this.taskState = reconcileTaskStateWithHistory(this.taskState, this.messages);
+    this.taskState = cloneTaskState(branch.taskState ?? null);
+    this.taskState = reconcileTaskStateWithHistory(
+      this.taskState,
+      this.messages,
+    );
     this.memoryCutoffMessageId = branch.memoryCutoffMessageId ?? null;
     this.checkpointMessageId = null;
     this.error = null;
@@ -860,7 +870,7 @@ export class Agent {
           }
         : {}),
       facts: { ...this.facts },
-      ...(this.taskState ? { taskState: { ...this.taskState } } : {}),
+      ...(this.taskState ? { taskState: cloneTaskState(this.taskState) } : {}),
       memoryCutoffMessageId: this.memoryCutoffMessageId,
       branches: this.branches.map((branch) => ({
         id: branch.id,
@@ -875,7 +885,9 @@ export class Agent {
           : {}),
         ...(branch.summary ? { summary: branch.summary } : {}),
         facts: { ...branch.facts },
-        ...(branch.taskState ? { taskState: { ...branch.taskState } } : {}),
+        ...(branch.taskState
+          ? { taskState: cloneTaskState(branch.taskState) }
+          : {}),
         memoryCutoffMessageId: branch.memoryCutoffMessageId ?? null,
       })),
       activeBranchId: this.activeBranchId,
@@ -892,7 +904,7 @@ export class Agent {
       activeBranch.messages = this.messages;
       activeBranch.workingMemory = this.workingMemory;
       activeBranch.facts = { ...this.facts };
-      activeBranch.taskState = this.taskState ? { ...this.taskState } : null;
+      activeBranch.taskState = cloneTaskState(this.taskState);
       activeBranch.memoryCutoffMessageId = this.memoryCutoffMessageId;
     }
     this.snapshot = {
@@ -1426,6 +1438,12 @@ export class Agent {
             ...(event.cachedInputTokens === undefined
               ? {}
               : { cachedContextTokens: event.cachedInputTokens }),
+            ...(event.invariantInputTokens === undefined
+              ? {}
+              : { invariantInputTokens: event.invariantInputTokens }),
+            ...(event.invariantOutputTokens === undefined
+              ? {}
+              : { invariantOutputTokens: event.invariantOutputTokens }),
           }));
         } else if (event.type === 'error') {
           throw new Error(event.message);
@@ -1444,7 +1462,10 @@ export class Agent {
           (message) => message.id === assistantMessage.id,
         );
         const progress = finalAnswer
-          ? readTaskProgressFromAnswer(finalAnswer.content, this.taskState.phase)
+          ? readTaskProgressFromAnswer(
+              finalAnswer.content,
+              this.taskState.phase,
+            )
           : null;
         if (this.taskState.phase !== 'done') {
           this.dispatchTaskState({

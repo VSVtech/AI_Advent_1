@@ -40,6 +40,9 @@ function parseEventBlock(block: string): ChatStreamEvent | null {
     const cachedInputTokens = data.cachedInputTokens;
     const invariantInputTokens = data.invariantInputTokens;
     const invariantOutputTokens = data.invariantOutputTokens;
+    const toolInputTokens = data.toolInputTokens;
+    const toolOutputTokens = data.toolOutputTokens;
+    const mcpTools = data.mcpTools;
     const isNonNegativeInt = (value: unknown): value is number =>
       typeof value === 'number' && Number.isInteger(value) && value >= 0;
 
@@ -55,6 +58,13 @@ function parseEventBlock(block: string): ChatStreamEvent | null {
         : {}),
       ...(isNonNegativeInt(invariantOutputTokens)
         ? { invariantOutputTokens }
+        : {}),
+      ...(isNonNegativeInt(toolInputTokens) ? { toolInputTokens } : {}),
+      ...(isNonNegativeInt(toolOutputTokens) ? { toolOutputTokens } : {}),
+      ...(Array.isArray(mcpTools) &&
+      mcpTools.length <= 8 &&
+      mcpTools.every((name) => typeof name === 'string' && name.length <= 128)
+        ? { mcpTools }
         : {}),
     };
   }

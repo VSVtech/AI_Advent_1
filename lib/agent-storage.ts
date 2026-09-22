@@ -273,6 +273,17 @@ function restoreMessage(value: unknown): ChatMessage | null {
   const outputTokens = restoreTokenCount(value.outputTokens);
   const invariantInputTokens = restoreTokenCount(value.invariantInputTokens);
   const invariantOutputTokens = restoreTokenCount(value.invariantOutputTokens);
+  const toolInputTokens = restoreTokenCount(value.toolInputTokens);
+  const toolOutputTokens = restoreTokenCount(value.toolOutputTokens);
+  const mcpTools =
+    Array.isArray(value.mcpTools) &&
+    value.mcpTools.length <= 8 &&
+    value.mcpTools.every(
+      (name) =>
+        typeof name === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(name),
+    )
+      ? (value.mcpTools as string[])
+      : undefined;
   const restoredAttachments =
     value.role === 'user' && Array.isArray(value.attachments)
       ? value.attachments.flatMap((attachment) => {
@@ -317,6 +328,9 @@ function restoreMessage(value: unknown): ChatMessage | null {
     ...(outputTokens === undefined ? {} : { outputTokens }),
     ...(invariantInputTokens === undefined ? {} : { invariantInputTokens }),
     ...(invariantOutputTokens === undefined ? {} : { invariantOutputTokens }),
+    ...(toolInputTokens === undefined ? {} : { toolInputTokens }),
+    ...(toolOutputTokens === undefined ? {} : { toolOutputTokens }),
+    ...(mcpTools === undefined ? {} : { mcpTools }),
   };
 }
 

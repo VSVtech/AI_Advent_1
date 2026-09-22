@@ -196,6 +196,9 @@ function formatTokenStats({
   outputTokens,
   invariantInputTokens,
   invariantOutputTokens,
+  toolInputTokens,
+  toolOutputTokens,
+  mcpTools,
 }: {
   requestTokens: number | undefined;
   contextTokens: number | undefined;
@@ -204,6 +207,9 @@ function formatTokenStats({
   outputTokens: number | undefined;
   invariantInputTokens: number | undefined;
   invariantOutputTokens: number | undefined;
+  toolInputTokens: number | undefined;
+  toolOutputTokens: number | undefined;
+  mcpTools: string[] | undefined;
 }): string | null {
   const parts: string[] = [];
 
@@ -231,6 +237,14 @@ function formatTokenStats({
     parts.push(
       `доп. вызовы для проверки этапа/инвариантов: вход ${invariantInputTokens ?? '—'}, выход ${invariantOutputTokens ?? '—'}`,
     );
+  }
+  if (toolInputTokens !== undefined || toolOutputTokens !== undefined) {
+    parts.push(
+      `доп. вызовы для MCP: вход ${toolInputTokens ?? '—'}, выход ${toolOutputTokens ?? '—'}`,
+    );
+  }
+  if (mcpTools?.length) {
+    parts.push(`MCP: ${Array.from(new Set(mcpTools)).join(', ')}`);
   }
 
   return parts.length ? `Токены: ${parts.join(' · ')}` : null;
@@ -628,6 +642,9 @@ export function AgentChat({
                         outputTokens: message.outputTokens,
                         invariantInputTokens: message.invariantInputTokens,
                         invariantOutputTokens: message.invariantOutputTokens,
+                        toolInputTokens: message.toolInputTokens,
+                        toolOutputTokens: message.toolOutputTokens,
+                        mcpTools: message.mcpTools,
                       })
                     : null;
 

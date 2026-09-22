@@ -18,6 +18,11 @@ import {
   invalidTaskTransitionProposal,
   type TaskState,
 } from '@/lib/task-state';
+import type { McpAgentConnection } from '@/lib/server/mcp-agent';
+import {
+  generateWithMcpTools,
+  type McpGenerationResult,
+} from '@/lib/server/mcp-deepseek';
 
 // One initial generation plus two bounded repairs. A violating candidate is
 // never streamed to the browser, including when all repairs fail.
@@ -174,6 +179,7 @@ export async function generateInvariantSafeOutput({
   contextWindowTokens,
   format,
   maxOutputTokens,
+  mcpConnection,
   messages,
   model,
   signal,
@@ -185,6 +191,7 @@ export async function generateInvariantSafeOutput({
   contextWindowTokens: number;
   format: ChatOutputFormat;
   maxOutputTokens: number;
+  mcpConnection: McpAgentConnection | null;
   messages: ApiChatMessage[];
   model: string;
   signal: AbortSignal;
@@ -231,40 +238,59 @@ export async function generateInvariantSafeOutput({
     });
     if (overflowResponse) return overflowResponse;
 
-    let response: Response;
-    try {
-      response = await fetch(DEEPSEEK_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          input: messages,
-          max_output_tokens: maxOutputTokens,
-          temperature,
-          stream: false,
-          reasoning: { effort: 'none' },
-          text: { format: textFormat },
-          instructions: requestSystemPrompt,
-        }),
-        cache: 'no-store',
-        signal,
-      });
-    } catch {
-      return unavailableResponse(signal);
-    }
-    if (!response.ok) return mappedUpstreamError(response);
-
     let payload: DeepSeekResponsePayload;
-    try {
-      payload = (await response.json()) as DeepSeekResponsePayload;
-    } catch {
-      return jsonError(502, {
-        code: 'invalid_model_output',
-        message: 'DeepSeek вернул некорректный ответ. Попробуйте ещё раз.',
+    let mcpResult: McpGenerationResult | null = null;
+    if (mcpConnection) {
+      const result = await generateWithMcpTools({
+        apiKey,
+        connection: mcpConnection,
+        contextWindowTokens,
+        maxOutputTokens,
+        messages,
+        model,
+        signal,
+        systemPrompt: requestSystemPrompt,
+        temperature,
+        textFormat,
       });
+      if (result instanceof Response) return result;
+      payload = result.payload;
+      mcpResult = result;
+    } else {
+      let response: Response;
+      try {
+        response = await fetch(DEEPSEEK_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            input: messages,
+            max_output_tokens: maxOutputTokens,
+            temperature,
+            stream: false,
+            reasoning: { effort: 'none' },
+            text: { format: textFormat },
+            instructions: requestSystemPrompt,
+          }),
+          cache: 'no-store',
+          signal,
+        });
+      } catch {
+        return unavailableResponse(signal);
+      }
+      if (!response.ok) return mappedUpstreamError(response);
+
+      try {
+        payload = (await response.json()) as DeepSeekResponsePayload;
+      } catch {
+        return jsonError(502, {
+          code: 'invalid_model_output',
+          message: 'DeepSeek вернул некорректный ответ. Попробуйте ещё раз.',
+        });
+      }
     }
     if (payload.status === 'incomplete') {
       const reachedTokenLimit =
@@ -313,6 +339,13 @@ export async function generateInvariantSafeOutput({
         outputTokens: extractOutputTokens(payload),
         ...extractInputTokenUsage(payload),
         ...internalUsage(),
+        ...(mcpResult
+          ? {
+              toolInputTokens: mcpResult.toolInputTokens,
+              toolOutputTokens: mcpResult.toolOutputTokens,
+              mcpTools: mcpResult.usedTools,
+            }
+          : {}),
       });
     }
     recordInternalUsage(payload);

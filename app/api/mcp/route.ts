@@ -4,8 +4,7 @@ import {
 } from '@modelcontextprotocol/client';
 
 import type { McpDirectoryResponse, McpToolInfo } from '@/lib/mcp-directory';
-
-const CAPSULE_URL = 'http://127.0.0.1:18765/mcp';
+import { mcpCapsuleUrl } from '@/lib/server/mcp-config';
 
 export async function GET(): Promise<Response> {
   const client = new Client({
@@ -16,7 +15,7 @@ export async function GET(): Promise<Response> {
   let status: 'connected' | 'unavailable' = 'unavailable';
 
   try {
-    const endpoint = new URL(process.env.MCP_CAPSULE_URL ?? CAPSULE_URL);
+    const endpoint = mcpCapsuleUrl();
     await client.connect(
       new StreamableHTTPClientTransport(endpoint, {
         requestInit: { signal: AbortSignal.timeout(5_000) },

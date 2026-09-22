@@ -108,6 +108,7 @@ describe('Agent', () => {
       targetOutputTokens: 300,
       temperature: 0.4,
       model: 'deepseek-v4-pro',
+      useMcpTools: true,
       useSystemPrompt: false,
       useSelectorSystemPrompt: true,
     });

@@ -1423,6 +1423,7 @@ export class Agent {
           targetOutputTokens: this.config.targetOutputTokens,
           temperature: this.config.temperature,
           model: this.config.model,
+          useMcpTools: true,
           useSystemPrompt: this.config.useSystemPrompt,
           useSelectorSystemPrompt: this.config.useSelectorSystemPrompt,
           ...(this.config.useSystemPrompt &&
@@ -1481,6 +1482,15 @@ export class Agent {
             ...(event.invariantOutputTokens === undefined
               ? {}
               : { invariantOutputTokens: event.invariantOutputTokens }),
+            ...(event.toolInputTokens === undefined
+              ? {}
+              : { toolInputTokens: event.toolInputTokens }),
+            ...(event.toolOutputTokens === undefined
+              ? {}
+              : { toolOutputTokens: event.toolOutputTokens }),
+            ...(event.mcpTools === undefined
+              ? {}
+              : { mcpTools: event.mcpTools }),
           }));
         } else if (event.type === 'error') {
           throw new Error(event.message);

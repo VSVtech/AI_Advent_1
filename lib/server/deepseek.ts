@@ -279,6 +279,9 @@ export function completedOutputResponse(
     cachedInputTokens?: number | null;
     invariantInputTokens?: number | null;
     invariantOutputTokens?: number | null;
+    toolInputTokens?: number | null;
+    toolOutputTokens?: number | null;
+    mcpTools?: string[];
   },
 ): Response {
   return eventStreamResponse(
@@ -307,6 +310,15 @@ export function completedOutputResponse(
             usage.invariantOutputTokens === undefined
               ? {}
               : { invariantOutputTokens: usage.invariantOutputTokens }),
+            ...(usage.toolInputTokens === null ||
+            usage.toolInputTokens === undefined
+              ? {}
+              : { toolInputTokens: usage.toolInputTokens }),
+            ...(usage.toolOutputTokens === null ||
+            usage.toolOutputTokens === undefined
+              ? {}
+              : { toolOutputTokens: usage.toolOutputTokens }),
+            ...(usage.mcpTools?.length ? { mcpTools: usage.mcpTools } : {}),
           }),
         );
         controller.close();
@@ -337,6 +349,9 @@ export type DeepSeekResponsePayload = {
   } | null;
   output?: Array<{
     type?: unknown;
+    call_id?: unknown;
+    name?: unknown;
+    arguments?: unknown;
     content?: Array<{
       type?: unknown;
       text?: unknown;

@@ -59,8 +59,33 @@ import {
 } from '@/lib/server/deepseek';
 import { contextWindowError } from '@/lib/server/context-window';
 import { generateInvariantSafeOutput } from '@/lib/server/task-invariants';
+import {
+  connectAgentMcp,
+  type McpAgentConnection,
+} from '@/lib/server/mcp-agent';
+import {
+  generateWithMcpTools,
+  type McpGenerationResult,
+} from '@/lib/server/mcp-deepseek';
 
 const MAX_FORMAT_RETRIES = 3;
+
+async function withMcpConnection(
+  connection: McpAgentConnection | null,
+  generate: () => Promise<Response>,
+): Promise<Response> {
+  try {
+    return await generate();
+  } finally {
+    if (connection) {
+      try {
+        await connection.close();
+      } catch {
+        // The answer remains valid if the transport fails while closing.
+      }
+    }
+  }
+}
 
 function isChatOutputFormat(value: unknown): value is ChatOutputFormat {
   return (
@@ -73,6 +98,7 @@ async function generateStructuredOutput({
   contextWindowTokens,
   format,
   maxOutputTokens,
+  mcpConnection,
   messages,
   model,
   signal,
@@ -83,6 +109,7 @@ async function generateStructuredOutput({
   contextWindowTokens: number;
   format: StructuredOutputFormat;
   maxOutputTokens: number;
+  mcpConnection: McpAgentConnection | null;
   messages: ApiChatMessage[];
   model: string;
   signal: AbortSignal;
@@ -118,49 +145,65 @@ async function generateStructuredOutput({
 
     if (overflowResponse) return overflowResponse;
 
-    let upstreamResponse: Response;
-
-    try {
-      upstreamResponse = await fetch(DEEPSEEK_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          // Format repair must not re-enable a disabled system prompt.
-          // Only the current retry gets this user instruction; history is unchanged.
-          input: requestMessages,
-          max_output_tokens: maxOutputTokens,
-          temperature,
-          stream: false,
-          reasoning: { effort: 'none' },
-          text: { format: textFormat },
-          ...(requestSystemPrompt === null
-            ? {}
-            : { instructions: requestSystemPrompt }),
-        }),
-        cache: 'no-store',
-        signal,
-      });
-    } catch {
-      if (signal.aborted) return new Response(null, { status: 499 });
-      return jsonError(502, {
-        code: 'deepseek_unreachable',
-        message:
-          'Не удалось связаться с DeepSeek. Проверьте подключение к интернету.',
-      });
-    }
-
-    if (!upstreamResponse.ok) return mappedUpstreamError(upstreamResponse);
-
     let payload: DeepSeekResponsePayload | null = null;
+    let mcpResult: McpGenerationResult | null = null;
+    if (mcpConnection) {
+      const result = await generateWithMcpTools({
+        apiKey,
+        connection: mcpConnection,
+        contextWindowTokens,
+        maxOutputTokens,
+        messages: requestMessages,
+        model,
+        signal,
+        systemPrompt: requestSystemPrompt,
+        temperature,
+        textFormat,
+      });
+      if (result instanceof Response) return result;
+      payload = result.payload;
+      mcpResult = result;
+    } else {
+      let upstreamResponse: Response;
+      try {
+        upstreamResponse = await fetch(DEEPSEEK_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            // Format repair must not re-enable a disabled system prompt.
+            // Only the current retry gets this user instruction; history is unchanged.
+            input: requestMessages,
+            max_output_tokens: maxOutputTokens,
+            temperature,
+            stream: false,
+            reasoning: { effort: 'none' },
+            text: { format: textFormat },
+            ...(requestSystemPrompt === null
+              ? {}
+              : { instructions: requestSystemPrompt }),
+          }),
+          cache: 'no-store',
+          signal,
+        });
+      } catch {
+        if (signal.aborted) return new Response(null, { status: 499 });
+        return jsonError(502, {
+          code: 'deepseek_unreachable',
+          message:
+            'Не удалось связаться с DeepSeek. Проверьте подключение к интернету.',
+        });
+      }
 
-    try {
-      payload = (await upstreamResponse.json()) as DeepSeekResponsePayload;
-    } catch {
-      // A malformed upstream body is treated as an invalid generated result.
+      if (!upstreamResponse.ok) return mappedUpstreamError(upstreamResponse);
+      try {
+        payload = (await upstreamResponse.json()) as DeepSeekResponsePayload;
+      } catch {
+        // A malformed upstream body is treated as an invalid generated result.
+      }
     }
 
     if (payload?.status === 'incomplete') {
@@ -181,6 +224,13 @@ async function generateStructuredOutput({
       return completedOutputResponse(content, {
         outputTokens: extractOutputTokens(payload),
         ...extractInputTokenUsage(payload),
+        ...(mcpResult
+          ? {
+              toolInputTokens: mcpResult.toolInputTokens,
+              toolOutputTokens: mcpResult.toolOutputTokens,
+              mcpTools: mcpResult.usedTools,
+            }
+          : {}),
       });
     }
   }
@@ -302,7 +352,8 @@ export async function POST(request: Request): Promise<Response> {
     (body.useSystemPrompt !== undefined &&
       typeof body.useSystemPrompt !== 'boolean') ||
     (body.useSelectorSystemPrompt !== undefined &&
-      typeof body.useSelectorSystemPrompt !== 'boolean')
+      typeof body.useSelectorSystemPrompt !== 'boolean') ||
+    (body.useMcpTools !== undefined && typeof body.useMcpTools !== 'boolean')
   ) {
     return jsonError(400, {
       code: 'invalid_system_prompt_mode',
@@ -389,32 +440,75 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
+  const mcpConnection = body.useMcpTools
+    ? await connectAgentMcp(request.signal)
+    : null;
+  if (request.signal.aborted) return new Response(null, { status: 499 });
+
   if (taskState && systemPrompt) {
-    return generateInvariantSafeOutput({
-      apiKey,
-      contextWindowTokens,
-      format: outputFormat,
-      maxOutputTokens,
-      messages: requestMessages,
-      model,
-      signal: request.signal,
-      state: taskState,
-      systemPrompt,
-      temperature,
-    });
+    return withMcpConnection(mcpConnection, () =>
+      generateInvariantSafeOutput({
+        apiKey,
+        contextWindowTokens,
+        format: outputFormat,
+        maxOutputTokens,
+        mcpConnection,
+        messages: requestMessages,
+        model,
+        signal: request.signal,
+        state: taskState,
+        systemPrompt,
+        temperature,
+      }),
+    );
   }
 
   if (isStructuredOutputFormat(outputFormat)) {
-    return generateStructuredOutput({
-      apiKey,
-      contextWindowTokens,
-      format: outputFormat,
-      maxOutputTokens,
-      messages: requestMessages,
-      model,
-      signal: request.signal,
-      systemPrompt,
-      temperature,
+    return withMcpConnection(mcpConnection, () =>
+      generateStructuredOutput({
+        apiKey,
+        contextWindowTokens,
+        format: outputFormat,
+        maxOutputTokens,
+        mcpConnection,
+        messages: requestMessages,
+        model,
+        signal: request.signal,
+        systemPrompt,
+        temperature,
+      }),
+    );
+  }
+
+  if (mcpConnection) {
+    return withMcpConnection(mcpConnection, async () => {
+      const result = await generateWithMcpTools({
+        apiKey,
+        connection: mcpConnection,
+        contextWindowTokens,
+        maxOutputTokens,
+        messages: requestMessages,
+        model,
+        signal: request.signal,
+        systemPrompt,
+        temperature,
+        textFormat: { type: 'text' },
+      });
+      if (result instanceof Response) return result;
+      const content = extractOutputText(result.payload);
+      if (!content) {
+        return jsonError(502, {
+          code: 'invalid_model_output',
+          message: 'DeepSeek не смог сформировать ответ после обращения к MCP.',
+        });
+      }
+      return completedOutputResponse(content, {
+        outputTokens: extractOutputTokens(result.payload),
+        ...extractInputTokenUsage(result.payload),
+        toolInputTokens: result.toolInputTokens,
+        toolOutputTokens: result.toolOutputTokens,
+        mcpTools: result.usedTools,
+      });
     });
   }
 

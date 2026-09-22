@@ -45,6 +45,10 @@ export interface ChatMessage {
   // Токены дополнительных вызовов для проверки этапа и инвариантов.
   invariantInputTokens?: number;
   invariantOutputTokens?: number;
+  // Tokens spent on model rounds that requested MCP tools, before the final answer.
+  toolInputTokens?: number;
+  toolOutputTokens?: number;
+  mcpTools?: string[];
 }
 
 export type ApiChatContentPart =
@@ -58,6 +62,8 @@ export interface ApiChatMessage {
 
 export interface ChatRequest {
   messages: ApiChatMessage[];
+  // Only regular agent replies opt in. Internal summarization/validation does not.
+  useMcpTools?: boolean;
   // Explicit profile text, distinct from automatically curated memory.
   profile?: string;
   // Structured shared memory is converted to system instructions by the API.
@@ -106,6 +112,9 @@ export type ChatStreamEvent =
       cachedInputTokens?: number;
       invariantInputTokens?: number;
       invariantOutputTokens?: number;
+      toolInputTokens?: number;
+      toolOutputTokens?: number;
+      mcpTools?: string[];
     }
   | { type: 'error'; code: string; message: string };
 

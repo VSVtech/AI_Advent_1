@@ -1184,10 +1184,15 @@ describe('конечный автомат состояния задачи', () =
         onSelectTask: () => {},
         onCreate: () => {},
         onCreateTask: () => {},
+        onOpenMcpTools: () => {},
+        isMcpToolsActive: false,
         onDelete: () => {},
       }),
     );
     expect(sidebar).toContain('Создать задачу');
+    expect(sidebar.indexOf('Новый агент')).toBeLessThan(
+      sidebar.indexOf('MCP Инструменты'),
+    );
     const setup = renderToStaticMarkup(
       createElement(TaskSetup, { onCreate: () => {}, onCancel: () => {} }),
     );

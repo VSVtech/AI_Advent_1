@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AgentChat } from '@/components/agent-chat';
 import { AgentSetup } from '@/components/agent-setup';
 import { AgentSidebar } from '@/components/agent-sidebar';
+import { McpToolsView } from '@/components/mcp-tools-view';
 import { TaskSetup } from '@/components/task-setup';
 import { TaskWorkspace } from '@/components/task-workspace';
 import { Agent, createDefaultAgentConfig, type AgentConfig } from '@/lib/agent';
@@ -13,7 +14,7 @@ import { loadAgentSessions, saveAgentSessions } from '@/lib/agent-storage';
 import { SharedLongTermMemory } from '@/lib/memory-layers';
 import { loadGeneralProfile } from '@/lib/user-profile';
 
-type View = 'empty' | 'setup' | 'chat' | 'task-setup' | 'task';
+type View = 'empty' | 'setup' | 'chat' | 'task-setup' | 'task' | 'mcp-tools';
 
 export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -164,16 +165,20 @@ export default function Home() {
       <div className="app-frame flex flex-col md:flex-row">
         <AgentSidebar
           agents={agents}
-          activeAgentId={activeAgentId}
+          activeAgentId={view === 'mcp-tools' ? null : activeAgentId}
           onSelect={handleSelect}
           onCreate={() => setView('setup')}
           onCreateTask={() => setView('task-setup')}
+          onOpenMcpTools={() => setView('mcp-tools')}
+          isMcpToolsActive={view === 'mcp-tools'}
           onSelectTask={handleSelectTask}
           onDelete={handleDelete}
         />
 
         <div className="section-panel flex-1">
-          {view === 'setup' ? (
+          {view === 'mcp-tools' ? (
+            <McpToolsView />
+          ) : view === 'setup' ? (
             <AgentSetup
               onCreate={handleCreate}
               onCancel={() => setView(activeAgent ? 'chat' : 'empty')}

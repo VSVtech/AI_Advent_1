@@ -11,11 +11,17 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",
+    "mcp:server": "node scripts/mcp/server.mjs",
+    "mcp:list": "node scripts/mcp/list-tools.mjs",
+    "mcp:weather": "node scripts/mcp/get-weather.mjs",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@shadcn/react": "0.3.0",
     "@speed-highlight/core": "1.2.24",
     "class-variance-authority": "0.7.1",

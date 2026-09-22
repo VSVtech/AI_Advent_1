@@ -1,0 +1,20 @@
+[Unit]
+Description=AI Challenge demo MCP server
+After=network.target
+
+[Service]
+Type=simple
+User=user
+Group=user
+WorkingDirectory=/home/user/mcp-demo
+Environment=MCP_PORT=8765
+ExecStart=/home/user/.local/node-v24.21.0-linux-x64/bin/node /home/user/mcp-demo/server.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

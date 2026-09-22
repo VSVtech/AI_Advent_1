@@ -1,7 +1,14 @@
 'use client';
 /* oxlint-disable next/no-html-link-for-pages -- Vinext has no Next Link package in the test runtime. */
 
-import { ListTodo, Plus, Sparkles, Trash2, UserRound } from 'lucide-react';
+import {
+  ListTodo,
+  Plus,
+  Sparkles,
+  Trash2,
+  UserRound,
+  Wrench,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { useAgentSnapshot } from '@/hooks/use-agent';
@@ -66,6 +73,8 @@ export function AgentSidebar({
   onSelect,
   onCreate,
   onCreateTask,
+  onOpenMcpTools,
+  isMcpToolsActive,
   onSelectTask,
   onDelete,
 }: {
@@ -74,6 +83,8 @@ export function AgentSidebar({
   onSelect: (id: string) => void;
   onCreate: () => void;
   onCreateTask: () => void;
+  onOpenMcpTools: () => void;
+  isMcpToolsActive: boolean;
   onSelectTask: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
@@ -101,6 +112,16 @@ export function AgentSidebar({
         >
           <Plus className="size-4" />
           Новый агент
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className={`min-h-10 w-full justify-start gap-2 border-white/10 bg-white/[0.035] text-white/80${isMcpToolsActive ? ' border-emerald-300/25 bg-emerald-300/10 text-emerald-200' : ''}`}
+          onClick={onOpenMcpTools}
+          aria-current={isMcpToolsActive || undefined}
+        >
+          <Wrench className="size-4" />
+          MCP Инструменты
         </Button>
         <Button
           type="button"

@@ -83,9 +83,21 @@ test('каталог показывает недоступность, если �
       {
         id: 'ai-vps',
         name: 'MCP на капсуле',
+        location: 'ai-vps · Streamable HTTP',
+        hint: 'Проверьте SSH-туннель и нажмите «Обновить».',
         status: 'unavailable',
         tools: [],
       },
+      expect.objectContaining({
+        id: 'travel',
+        name: 'Поездки',
+        status: 'unavailable',
+      }),
+      expect.objectContaining({
+        id: 'notes',
+        name: 'Заметки',
+        status: 'unavailable',
+      }),
     ],
   });
 });

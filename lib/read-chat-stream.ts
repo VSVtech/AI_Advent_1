@@ -1,3 +1,4 @@
+import { MAX_MCP_TOOL_CALLS } from '@/lib/chat-constraints';
 import type { ChatStreamEvent } from '@/lib/chat-types';
 
 function parseEventBlock(block: string): ChatStreamEvent | null {
@@ -63,7 +64,7 @@ function parseEventBlock(block: string): ChatStreamEvent | null {
       ...(isNonNegativeInt(toolInputTokens) ? { toolInputTokens } : {}),
       ...(isNonNegativeInt(toolOutputTokens) ? { toolOutputTokens } : {}),
       ...(Array.isArray(mcpTools) &&
-      mcpTools.length <= 8 &&
+      mcpTools.length <= MAX_MCP_TOOL_CALLS &&
       mcpTools.every((name) => typeof name === 'string' && name.length <= 128)
         ? { mcpTools }
         : {}),

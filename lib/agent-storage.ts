@@ -9,6 +9,7 @@ import {
 import {
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   isValidContextWindowTokens,
+  MAX_MCP_TOOL_CALLS,
   isValidModel,
   isValidTargetOutputTokensOrNull,
   isValidTemperature,
@@ -277,7 +278,7 @@ function restoreMessage(value: unknown): ChatMessage | null {
   const toolOutputTokens = restoreTokenCount(value.toolOutputTokens);
   const mcpTools =
     Array.isArray(value.mcpTools) &&
-    value.mcpTools.length <= 8 &&
+    value.mcpTools.length <= MAX_MCP_TOOL_CALLS &&
     value.mcpTools.every(
       (name) =>
         typeof name === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(name),

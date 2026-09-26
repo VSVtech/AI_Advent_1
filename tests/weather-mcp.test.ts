@@ -360,7 +360,9 @@ test('агент в чате сам планирует сбор через MCP �
   );
   const jobId = events.match(/"weatherJobId":"([^"]+)"/u)?.[1];
   expect(jobId).toBeTruthy();
-  expect(events).toContain('"mcpTools":["schedule_weather_collection"]');
+  expect(events).toContain(
+    '"mcpTools":["ai-vps__schedule_weather_collection"]',
+  );
   // The model is told that the chat delivers the result by itself.
   expect(JSON.stringify(requests[1].input)).toContain('chatNote');
   expect(await readWeatherJob(jobId, dataDir)).toMatchObject({

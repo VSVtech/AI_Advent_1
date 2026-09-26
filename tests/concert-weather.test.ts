@@ -76,6 +76,7 @@ function toolText(result: Awaited<ReturnType<Client['callTool']>>): string {
 test('скилл предлагается модели только при наличии всей цепочки инструментов', () => {
   expect(AGENT_SKILLS.map((skill) => skill.tools)).toEqual([
     ['find_concert', 'get_weather'],
+    ['find_concert', 'get_weather', 'plan_trip', 'save_note'],
   ]);
   expect(buildSkillsPrompt(['get_weather'])).toBeNull();
   const prompt = buildSkillsPrompt(['ping', 'find_concert', 'get_weather']);
@@ -214,6 +215,8 @@ test('агент сам выполняет скилл: find_concert → get_weat
     'Скилл «Погода на концерте» (find_concert → get_weather)',
   );
   expect(getWeather).toHaveBeenCalledExactlyOnceWith('Потсдам');
-  expect(events).toContain('"mcpTools":["find_concert","get_weather"]');
+  expect(events).toContain(
+    '"mcpTools":["ai-vps__find_concert","ai-vps__get_weather"]',
+  );
   expect(events).toContain('Нюша выступает в Потсдам, там 12.5 °C.');
 });

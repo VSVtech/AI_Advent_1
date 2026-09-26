@@ -11,6 +11,8 @@ export type McpToolInfo = {
 export type McpServerInfo = {
   id: string;
   name: string;
+  location: string;
+  hint: string;
   status: 'connected' | 'unavailable';
   tools: McpToolInfo[];
 };

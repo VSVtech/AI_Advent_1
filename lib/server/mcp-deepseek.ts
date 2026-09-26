@@ -1,6 +1,8 @@
 import {
   estimateContextTokenCount,
   estimateTokenCount,
+  MAX_MCP_TOOL_CALLS,
+  MAX_MCP_TOOL_ROUNDS,
 } from '@/lib/chat-constraints';
 import { buildSkillsPrompt } from '@/lib/agent-skills';
 import type { ApiChatMessage } from '@/lib/chat-types';
@@ -14,8 +16,8 @@ import {
 } from '@/lib/server/deepseek';
 import type { McpAgentConnection } from '@/lib/server/mcp-agent';
 
-const MAX_TOOL_ROUNDS = 3;
-const MAX_TOOL_CALLS = 8;
+const MAX_TOOL_ROUNDS = MAX_MCP_TOOL_ROUNDS;
+const MAX_TOOL_CALLS = MAX_MCP_TOOL_CALLS;
 const MAX_ARGUMENTS_LENGTH = 16_000;
 
 type FunctionCall = {
@@ -244,7 +246,7 @@ export async function generateWithMcpTools({
     }
     for (const call of calls) {
       seenCallIds.add(call.call_id);
-      usedTools.push(call.name);
+      usedTools.push(connection.traceName?.(call.name) ?? call.name);
       let output: string;
       try {
         output = await connection.callTool(

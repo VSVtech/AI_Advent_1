@@ -244,7 +244,10 @@ function formatTokenStats({
     );
   }
   if (mcpTools?.length) {
-    parts.push(`MCP: ${Array.from(new Set(mcpTools)).join(', ')}`);
+    // Calls in execution order; «server__tool» shows where each was routed.
+    parts.push(
+      `MCP: ${mcpTools.map((call) => call.replace('__', ' · ')).join(' → ')}`,
+    );
   }
 
   return parts.length ? `Токены: ${parts.join(' · ')}` : null;

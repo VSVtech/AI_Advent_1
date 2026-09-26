@@ -54,7 +54,18 @@ if [[ -f "$mcp_ssh_key" ]] && command -v ssh >/dev/null 2>&1; then
   mcp_tunnel_pid=$!
 fi
 
+# Local MCP servers «Поездки» and «Заметки»: the agent routes tool calls
+# between them and the capsule.
+local_mcp_pids=''
+for mcp_server in travel notes; do
+  node "scripts/mcp-servers/${mcp_server}.mjs" &
+  local_mcp_pids="$local_mcp_pids $!"
+done
+
 cleanup() {
+  for pid in $local_mcp_pids; do
+    kill "$pid" 2>/dev/null || true
+  done
   if [[ -n "$mcp_tunnel_pid" ]]; then
     kill "$mcp_tunnel_pid" 2>/dev/null || true
     wait "$mcp_tunnel_pid" 2>/dev/null || true

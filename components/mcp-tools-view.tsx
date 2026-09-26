@@ -240,7 +240,7 @@ export function McpToolsView() {
                     </h2>
                     <p className="flex items-center gap-1.5 text-xs text-white/45">
                       <Cloud className="size-3.5" aria-hidden="true" />
-                      ai-vps · Streamable HTTP
+                      {server.location}
                     </p>
                   </div>
                 </div>
@@ -288,8 +288,8 @@ export function McpToolsView() {
                 )
               ) : (
                 <div className="space-y-2 px-5 py-6 text-sm leading-6 text-white/55">
-                  <p>Не удалось связаться с MCP-сервером на капсуле.</p>
-                  <p>Проверьте SSH-туннель и нажмите «Обновить».</p>
+                  <p>Не удалось связаться с сервером «{server.name}».</p>
+                  <p>{server.hint}</p>
                 </div>
               )}
             </section>
@@ -343,17 +343,25 @@ export function McpToolsView() {
                       {skill.description}
                     </p>
                     <p className="flex flex-wrap items-center gap-1.5 font-mono text-xs text-white/60">
-                      {skill.tools.map((tool, index) => (
-                        <span key={tool} className="flex items-center gap-1.5">
-                          {index > 0 ? (
-                            <ArrowRight
-                              className="size-3.5 text-white/35"
-                              aria-label="затем"
-                            />
-                          ) : null}
-                          {tool}
-                        </span>
-                      ))}
+                      {skill.tools.map((tool, index) => {
+                        const owner = connectedServers.find((server) =>
+                          server.tools.some((item) => item.name === tool),
+                        );
+                        return (
+                          <span
+                            key={tool}
+                            className="flex items-center gap-1.5"
+                          >
+                            {index > 0 ? (
+                              <ArrowRight
+                                className="size-3.5 text-white/35"
+                                aria-label="затем"
+                              />
+                            ) : null}
+                            {owner ? `${owner.id} · ${tool}` : tool}
+                          </span>
+                        );
+                      })}
                     </p>
                   </div>
                 );

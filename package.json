@@ -15,6 +15,8 @@
     "mcp:list": "node scripts/mcp/list-tools.mjs",
     "mcp:weather": "node scripts/mcp/get-weather.mjs",
     "mcp:concert-weather": "node scripts/mcp/concert-weather.mjs",
+    "mcp:travel": "node scripts/mcp-servers/travel.mjs",
+    "mcp:notes": "node scripts/mcp-servers/notes.mjs",
     "weather:tick": "node scripts/mcp/weather-tick.mjs",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts"

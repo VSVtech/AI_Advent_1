@@ -133,7 +133,7 @@ test('агент вызывает MCP-инструмент и передаёт �
       ]),
     );
     expect(events).toContain('MCP доступен: pong');
-    expect(events).toContain('"mcpTools":["ping"]');
+    expect(events).toContain('"mcpTools":["ai-vps__ping"]');
     expect(events).toContain('"toolInputTokens":40');
   } finally {
     server.kill();

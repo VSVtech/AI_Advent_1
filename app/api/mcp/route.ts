@@ -3,21 +3,24 @@ import {
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
 
-import type { McpDirectoryResponse, McpToolInfo } from '@/lib/mcp-directory';
-import { mcpCapsuleUrl } from '@/lib/server/mcp-config';
+import type {
+  McpDirectoryResponse,
+  McpServerInfo,
+  McpToolInfo,
+} from '@/lib/mcp-directory';
+import { MCP_SERVERS, type McpServerConfig } from '@/lib/server/mcp-config';
 
-export async function GET(): Promise<Response> {
+async function describeServer(server: McpServerConfig): Promise<McpServerInfo> {
   const client = new Client({
     name: 'ai-challenge-directory',
     version: '1.0.0',
   });
   let tools: McpToolInfo[] = [];
-  let status: 'connected' | 'unavailable' = 'unavailable';
+  let status: McpServerInfo['status'] = 'unavailable';
 
   try {
-    const endpoint = mcpCapsuleUrl();
     await client.connect(
-      new StreamableHTTPClientTransport(endpoint, {
+      new StreamableHTTPClientTransport(server.url(), {
         requestInit: { signal: AbortSignal.timeout(5_000) },
       }),
     );
@@ -29,7 +32,7 @@ export async function GET(): Promise<Response> {
     }));
     status = 'connected';
   } catch {
-    // Keep the directory visible when the SSH tunnel or capsule is unavailable.
+    // Keep the directory visible when a server or the SSH tunnel is down.
   } finally {
     try {
       await client.close();
@@ -38,16 +41,20 @@ export async function GET(): Promise<Response> {
     }
   }
 
+  return {
+    id: server.id,
+    name: server.name,
+    location: server.location,
+    hint: server.hint,
+    status,
+    tools,
+  };
+}
+
+export async function GET(): Promise<Response> {
   return Response.json(
     {
-      servers: [
-        {
-          id: 'ai-vps',
-          name: 'MCP на капсуле',
-          status,
-          tools,
-        },
-      ],
+      servers: await Promise.all(MCP_SERVERS.map(describeServer)),
     } satisfies McpDirectoryResponse,
     { headers: { 'Cache-Control': 'no-store' } },
   );

@@ -3,19 +3,12 @@ import {
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
 
-import { mcpCapsuleUrl } from '@/lib/server/mcp-config';
+import { MCP_SERVERS, type McpServerConfig } from '@/lib/server/mcp-config';
 
-const ALLOWED_TOOLS = new Set([
-  'ping',
-  'server_time',
-  'get_weather',
-  'find_concert',
-  'schedule_weather_collection',
-  'get_weather_summary',
-]);
 const MAX_TOOL_RESULT_LENGTH = 16_000;
 const WEATHER_JOB_ID = /^[a-zA-Z0-9_-]{1,100}$/u;
-const MCP_TIMEOUT_MS = 10_000;
+// get_weather on the capsule may first wait out a blocked Open-Meteo host.
+const MCP_TIMEOUT_MS = 25_000;
 
 export type DeepSeekFunctionTool = {
   type: 'function';
@@ -34,6 +27,8 @@ export type McpAgentConnection = {
   close: () => Promise<void>;
   // Weather jobs created during this request; the chat delivers their result.
   scheduledWeatherJobIds?: readonly string[];
+  // «server__tool» label of a call, for the call trace shown in the chat.
+  traceName?: (name: string) => string;
 };
 
 function isCityArgument(value: unknown): boolean {
@@ -50,6 +45,35 @@ function validArguments(name: string, args: Record<string, unknown>): boolean {
   }
   if (name === 'get_weather') {
     return Object.keys(args).length === 1 && isCityArgument(args.city);
+  }
+  if (name === 'plan_trip') {
+    return (
+      Object.keys(args).every((key) => ['from', 'to', 'date'].includes(key)) &&
+      isCityArgument(args.from) &&
+      isCityArgument(args.to) &&
+      (args.date === undefined ||
+        (typeof args.date === 'string' &&
+          /^\d{4}-\d{2}-\d{2}$/u.test(args.date)))
+    );
+  }
+  if (name === 'save_note') {
+    return (
+      Object.keys(args).length === 2 &&
+      typeof args.title === 'string' &&
+      args.title.trim().length >= 1 &&
+      args.title.length <= 120 &&
+      typeof args.content === 'string' &&
+      args.content.trim().length >= 1 &&
+      args.content.length <= 20_000
+    );
+  }
+  if (name === 'list_notes') return Object.keys(args).length === 0;
+  if (name === 'read_note') {
+    return (
+      Object.keys(args).length === 1 &&
+      typeof args.id === 'string' &&
+      /^[a-z0-9-]{1,100}$/u.test(args.id)
+    );
   }
   if (name === 'find_concert') {
     const keys = Object.keys(args);
@@ -105,13 +129,21 @@ function asToolOutput(value: unknown): string {
     : `${output.slice(0, MAX_TOOL_RESULT_LENGTH)}…[результат сокращён]`;
 }
 
-export async function connectAgentMcp(
+type ConnectedServer = {
+  server: McpServerConfig;
+  client: Client;
+  tools: Array<{ name: string; description?: string; inputSchema: unknown }>;
+};
+
+type ToolRoute = { serverId: string; client: Client; toolName: string };
+
+async function connectServer(
+  server: McpServerConfig,
   signal: AbortSignal,
-): Promise<McpAgentConnection | null> {
-  if (signal.aborted) return null;
+): Promise<ConnectedServer | null> {
   const client = new Client({ name: 'ai-challenge-agent', version: '1.0.0' });
   try {
-    await client.connect(new StreamableHTTPClientTransport(mcpCapsuleUrl()), {
+    await client.connect(new StreamableHTTPClientTransport(server.url()), {
       timeout: 5_000,
       signal,
     });
@@ -119,72 +151,106 @@ export async function connectAgentMcp(
       timeout: 5_000,
       signal,
     });
-    const tools = listed.tools
-      .filter((tool) => ALLOWED_TOOLS.has(tool.name))
-      .map(
-        (tool): DeepSeekFunctionTool => ({
-          type: 'function',
-          name: tool.name,
-          description: tool.description ?? `MCP-инструмент ${tool.name}`,
-          parameters: tool.inputSchema as Record<string, unknown>,
-        }),
-      );
-    if (tools.length === 0) {
-      await client.close();
-      return null;
-    }
-    const scheduledWeatherJobIds: string[] = [];
-
-    return {
-      tools,
-      scheduledWeatherJobIds,
-      async callTool(name, args, callSignal) {
-        if (!tools.some((tool) => tool.name === name)) {
-          return asToolOutput({ ok: false, error: 'Инструмент недоступен' });
-        }
-        if (!validArguments(name, args)) {
-          return asToolOutput({ ok: false, error: 'Некорректные аргументы' });
-        }
-        try {
-          const result = await client.callTool(
-            { name, arguments: args },
-            { timeout: MCP_TIMEOUT_MS, signal: callSignal },
-          );
-          const content = result.content
-            .filter((item) => item.type === 'text')
-            .map((item) => item.text);
-          const jobId =
-            name === 'schedule_weather_collection' && result.isError !== true
-              ? scheduledJobId(content[0])
-              : null;
-          if (jobId) scheduledWeatherJobIds.push(jobId);
-          return asToolOutput({
-            ok: result.isError !== true,
-            content: content.length ? content : ['Пустой ответ инструмента'],
-            ...(jobId
-              ? {
-                  chatNote:
-                    'Итог этого задания чат добавит сюда сам после окончания сбора; пользователю ничего запрашивать не нужно.',
-                }
-              : {}),
-          });
-        } catch {
-          if (callSignal.aborted)
-            throw new DOMException('Aborted', 'AbortError');
-          return asToolOutput({
-            ok: false,
-            error: 'MCP-инструмент временно недоступен',
-          });
-        }
-      },
-      close: () => client.close(),
-    };
+    const tools = listed.tools.filter((tool) =>
+      server.tools.includes(tool.name),
+    );
+    if (tools.length > 0) return { server, client, tools };
   } catch {
-    try {
-      await client.close();
-    } catch {
-      // A failed connection may not have an open transport to close.
-    }
-    return null;
+    // An unreachable server is skipped; the others keep working.
   }
+  try {
+    await client.close();
+  } catch {
+    // A failed connection may not have an open transport to close.
+  }
+  return null;
+}
+
+export async function connectAgentMcp(
+  signal: AbortSignal,
+  servers: readonly McpServerConfig[] = MCP_SERVERS,
+): Promise<McpAgentConnection | null> {
+  if (signal.aborted) return null;
+  const connected = (
+    await Promise.all(servers.map((server) => connectServer(server, signal)))
+  ).filter((item): item is ConnectedServer => item !== null);
+  if (connected.length === 0) return null;
+
+  // A tool name offered by several servers is qualified with the server id.
+  const owners = new Map<string, number>();
+  for (const { tools } of connected) {
+    for (const tool of tools) {
+      owners.set(tool.name, (owners.get(tool.name) ?? 0) + 1);
+    }
+  }
+  const routes = new Map<string, ToolRoute>();
+  const tools: DeepSeekFunctionTool[] = [];
+  for (const { server, client, tools: serverTools } of connected) {
+    for (const tool of serverTools) {
+      const name =
+        (owners.get(tool.name) ?? 0) > 1
+          ? `${server.id}__${tool.name}`
+          : tool.name;
+      routes.set(name, { serverId: server.id, client, toolName: tool.name });
+      tools.push({
+        type: 'function',
+        name,
+        description: `[${server.name}] ${tool.description ?? `MCP-инструмент ${tool.name}`}`,
+        parameters: tool.inputSchema as Record<string, unknown>,
+      });
+    }
+  }
+  const scheduledWeatherJobIds: string[] = [];
+
+  return {
+    tools,
+    scheduledWeatherJobIds,
+    traceName(name) {
+      const route = routes.get(name);
+      return route ? `${route.serverId}__${route.toolName}` : name;
+    },
+    async callTool(name, args, callSignal) {
+      const route = routes.get(name);
+      if (!route) {
+        return asToolOutput({ ok: false, error: 'Инструмент недоступен' });
+      }
+      if (!validArguments(route.toolName, args)) {
+        return asToolOutput({ ok: false, error: 'Некорректные аргументы' });
+      }
+      try {
+        const result = await route.client.callTool(
+          { name: route.toolName, arguments: args },
+          { timeout: MCP_TIMEOUT_MS, signal: callSignal },
+        );
+        const content = result.content
+          .filter((item) => item.type === 'text')
+          .map((item) => item.text);
+        const jobId =
+          route.toolName === 'schedule_weather_collection' &&
+          result.isError !== true
+            ? scheduledJobId(content[0])
+            : null;
+        if (jobId) scheduledWeatherJobIds.push(jobId);
+        return asToolOutput({
+          ok: result.isError !== true,
+          content: content.length ? content : ['Пустой ответ инструмента'],
+          ...(jobId
+            ? {
+                chatNote:
+                  'Итог этого задания чат добавит сюда сам после окончания сбора; пользователю ничего запрашивать не нужно.',
+              }
+            : {}),
+        });
+      } catch {
+        if (callSignal.aborted) throw new DOMException('Aborted', 'AbortError');
+        return asToolOutput({
+          ok: false,
+          error: 'MCP-инструмент временно недоступен',
+        });
+      }
+    },
+    async close() {
+      await Promise.allSettled(connected.map(({ client }) => client.close()));
+    },
+  };
 }

@@ -1,17 +1,20 @@
 'use client';
 
 import {
+  ArrowRight,
   Cloud,
   CloudRain,
   LoaderCircle,
   RefreshCw,
   Server,
   Thermometer,
+  Workflow,
   Wrench,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { AGENT_SKILLS } from '@/lib/agent-skills';
 import type { McpDirectoryResponse, McpToolInfo } from '@/lib/mcp-directory';
 import {
   WEATHER_SUMMARY_URL,
@@ -291,6 +294,64 @@ export function McpToolsView() {
               )}
             </section>
           ))}
+          <section
+            className="rounded-2xl border border-white/8 bg-white/[0.025] p-4 sm:p-5"
+            aria-label="Скиллы агента"
+          >
+            <div className="mb-3 flex items-center gap-2 text-emerald-200">
+              <Workflow className="size-5" aria-hidden="true" />
+              <h2 className="text-base font-semibold text-white">
+                Скиллы агента
+              </h2>
+            </div>
+            <div className="space-y-4">
+              {AGENT_SKILLS.map((skill) => {
+                const ready =
+                  directory !== null &&
+                  skill.tools.every((tool) =>
+                    directory.servers.some(
+                      (server) =>
+                        server.status === 'connected' &&
+                        server.tools.some((item) => item.name === tool),
+                    ),
+                  );
+                return (
+                  <div key={skill.id} className="space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-sm font-medium text-white/85">
+                        {skill.name}
+                      </h3>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${
+                          ready
+                            ? 'bg-emerald-300/10 text-emerald-200'
+                            : 'bg-amber-300/10 text-amber-200'
+                        }`}
+                      >
+                        {ready ? 'Готов' : 'Нет инструментов на сервере'}
+                      </span>
+                    </div>
+                    <p className="text-sm leading-6 text-white/55">
+                      {skill.description}
+                    </p>
+                    <p className="flex flex-wrap items-center gap-1.5 font-mono text-xs text-white/60">
+                      {skill.tools.map((tool, index) => (
+                        <span key={tool} className="flex items-center gap-1.5">
+                          {index > 0 ? (
+                            <ArrowRight
+                              className="size-3.5 text-white/35"
+                              aria-label="затем"
+                            />
+                          ) : null}
+                          {tool}
+                        </span>
+                      ))}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         </div>
       </div>
     </div>

@@ -4,6 +4,7 @@ import {
   McpServer,
 } from '@modelcontextprotocol/server';
 
+import { findConcerts, PERFORMERS } from './concerts.mjs';
 import { getCurrentWeather } from './weather.mjs';
 import {
   createWeatherJob,
@@ -77,6 +78,28 @@ export function createWeatherMcpHandler({
           return errorResult(errorMessage(error, 'Не удалось получить погоду'));
         }
       },
+    );
+    mcp.registerTool(
+      'find_concert',
+      {
+        description:
+          'Найти в локальной афише, в каком городе, когда и где выступает исполнитель. ' +
+          `Исполнители: ${PERFORMERS.join(', ')}. Все концерты проходят в Германии; ` +
+          'поле city можно сразу передать в get_weather. Без аргумента — вся афиша.',
+        inputSchema: fromJsonSchema({
+          type: 'object',
+          properties: {
+            performer: {
+              type: 'string',
+              minLength: 2,
+              maxLength: 60,
+              description: 'Имя исполнителя, например «Нюша»',
+            },
+          },
+          additionalProperties: false,
+        }),
+      },
+      async ({ performer } = {}) => textResult(findConcerts(performer)),
     );
     mcp.registerTool(
       'schedule_weather_collection',

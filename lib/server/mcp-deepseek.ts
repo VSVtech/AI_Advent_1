@@ -2,6 +2,7 @@ import {
   estimateContextTokenCount,
   estimateTokenCount,
 } from '@/lib/chat-constraints';
+import { buildSkillsPrompt } from '@/lib/agent-skills';
 import type { ApiChatMessage } from '@/lib/chat-types';
 import {
   DEEPSEEK_ENDPOINT,
@@ -98,6 +99,11 @@ export async function generateWithMcpTools({
   textFormat: { type: 'text' } | { type: 'json_object' };
 }): Promise<McpGenerationResult | Response> {
   const input: DeepSeekInputItem[] = [...messages];
+  // Skills travel with the tools they chain, like the tool descriptions.
+  const instructions =
+    [systemPrompt, buildSkillsPrompt(connection.tools.map((tool) => tool.name))]
+      .filter(Boolean)
+      .join('\n\n') || null;
   const seenCallIds = new Set<string>();
   const usedTools: string[] = [];
   let toolInputTokens = 0;
@@ -108,7 +114,7 @@ export async function generateWithMcpTools({
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
     if (signal.aborted) return new Response(null, { status: 499 });
     const estimatedTokens =
-      estimateContextTokenCount(messages, systemPrompt) +
+      estimateContextTokenCount(messages, instructions) +
       estimateTokenCount(JSON.stringify(connection.tools)) +
       estimateTokenCount(JSON.stringify(input.slice(messages.length)));
     if (estimatedTokens > contextWindowTokens) {
@@ -136,7 +142,7 @@ export async function generateWithMcpTools({
           text: { format: textFormat },
           tools: connection.tools,
           tool_choice: round === MAX_TOOL_ROUNDS ? 'none' : 'auto',
-          ...(systemPrompt ? { instructions: systemPrompt } : {}),
+          ...(instructions ? { instructions } : {}),
         }),
         cache: 'no-store',
         signal,

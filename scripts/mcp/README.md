@@ -7,7 +7,10 @@
 серверу, вызывает `listTools()` и печатает имена, описания и схемы аргументов.
 `get-weather.mjs` вызывает погодный инструмент через MCP. Инструменты
 `schedule_weather_collection` и `get_weather_summary` — планировщик погоды,
-описанный [ниже](#планировщик-погоды-день-18).
+описанный [ниже](#планировщик-погоды-день-18). `find_concert` ищет по локальной
+афише (`concerts.mjs`), где выступает исполнитель. `concert-weather.mjs`
+выполняет цепочку `find_concert` → `get_weather` через MCP:
+`npm run mcp:concert-weather -- Нюша`.
 
 Из корня проекта:
 
@@ -81,7 +84,7 @@ DeepSeek на капсуле не нужен: краткий вывод по и�
 Установка на капсулу (пути — как в `ai-challenge-mcp.service`):
 
 ```bash
-scp -i ~/.ssh/ai-vps-key scripts/mcp/{server,handler,weather,weather-store,weather-jobs,weather-tick}.mjs scripts/mcp/weather.crontab scripts/mcp/ai-challenge-mcp.service user@VPS_IP:/home/user/mcp-demo/
+scp -i ~/.ssh/ai-vps-key scripts/mcp/{server,handler,weather,weather-store,weather-jobs,weather-tick,concerts,concert-weather}.mjs scripts/mcp/weather.crontab scripts/mcp/ai-challenge-mcp.service user@VPS_IP:/home/user/mcp-demo/
 ```
 
 На капсуле:

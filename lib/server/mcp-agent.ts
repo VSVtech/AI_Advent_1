@@ -9,6 +9,7 @@ const ALLOWED_TOOLS = new Set([
   'ping',
   'server_time',
   'get_weather',
+  'find_concert',
   'schedule_weather_collection',
   'get_weather_summary',
 ]);
@@ -49,6 +50,16 @@ function validArguments(name: string, args: Record<string, unknown>): boolean {
   }
   if (name === 'get_weather') {
     return Object.keys(args).length === 1 && isCityArgument(args.city);
+  }
+  if (name === 'find_concert') {
+    const keys = Object.keys(args);
+    return (
+      keys.every((key) => key === 'performer') &&
+      (args.performer === undefined ||
+        (typeof args.performer === 'string' &&
+          args.performer.trim().length >= 2 &&
+          args.performer.trim().length <= 60))
+    );
   }
   // Ranges are checked by the MCP server, whose message the model can relay.
   if (name === 'schedule_weather_collection') {

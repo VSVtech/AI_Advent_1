@@ -64,6 +64,7 @@ test('MCP-клиент подключается и получает инстру
       'ping',
       'server_time',
       'get_weather',
+      'find_concert',
       'schedule_weather_collection',
       'get_weather_summary',
     ]);

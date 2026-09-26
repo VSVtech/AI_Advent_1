@@ -64,6 +64,8 @@ test('MCP-клиент подключается и получает инстру
       'ping',
       'server_time',
       'get_weather',
+      'schedule_weather_collection',
+      'get_weather_summary',
     ]);
     for (const tool of tools) {
       expect(tool.description).toBeTruthy();
@@ -74,6 +76,17 @@ test('MCP-клиент подключается и получает инстру
     ).toMatchObject({
       required: ['city'],
       properties: { city: { type: 'string' } },
+    });
+    expect(
+      tools.find((tool) => tool.name === 'schedule_weather_collection')
+        ?.inputSchema,
+    ).toMatchObject({
+      required: ['intervalMinutes', 'durationMinutes'],
+      properties: {
+        city: { type: 'string' },
+        intervalMinutes: { type: 'integer' },
+        durationMinutes: { type: 'integer' },
+      },
     });
   } finally {
     server.kill();

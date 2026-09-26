@@ -1,0 +1,4 @@
+# Планировщик погоды на капсуле: раз в минуту выполняет то, что пора, —
+# ежечасный замер для Москвы, суточную сводку в 16:00 МСК и замеры заданий
+# schedule_weather_collection. flock не даёт запускам наложиться.
+* * * * * cd /home/user/mcp-demo && flock -n /tmp/ai-challenge-weather.lock /home/user/.local/node-v24.21.0-linux-x64/bin/node weather-tick.mjs >> /home/user/mcp-demo/data/tick.log 2>&1

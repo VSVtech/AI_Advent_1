@@ -49,6 +49,10 @@ export interface ChatMessage {
   toolInputTokens?: number;
   toolOutputTokens?: number;
   mcpTools?: string[];
+  // Weather collection scheduled through MCP: the answer that started the job
+  // keeps its id; the delivered result is marked with weatherJobResult.
+  weatherJobId?: string;
+  weatherJobResult?: boolean;
 }
 
 export type ApiChatContentPart =
@@ -115,6 +119,7 @@ export type ChatStreamEvent =
       toolInputTokens?: number;
       toolOutputTokens?: number;
       mcpTools?: string[];
+      weatherJobId?: string;
     }
   | { type: 'error'; code: string; message: string };
 

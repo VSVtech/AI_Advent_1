@@ -295,6 +295,14 @@ export function AgentChat({
     window.setTimeout(() => textareaRef.current?.focus(), 0);
   }, [agent]);
 
+  useEffect(() => {
+    void agent.syncWeatherJobs();
+    const interval = window.setInterval(() => {
+      void agent.syncWeatherJobs();
+    }, 10_000);
+    return () => window.clearInterval(interval);
+  }, [agent]);
+
   const sendMessage = (rawContent?: string) => {
     const content = (rawContent ?? input).trim();
     if ((!content && selectedFiles.length === 0) || isGenerating || taskPaused)

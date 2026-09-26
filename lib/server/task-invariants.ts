@@ -344,6 +344,7 @@ export async function generateInvariantSafeOutput({
               toolInputTokens: mcpResult.toolInputTokens,
               toolOutputTokens: mcpResult.toolOutputTokens,
               mcpTools: mcpResult.usedTools,
+              weatherJobId: mcpConnection?.scheduledWeatherJobIds?.at(-1),
             }
           : {}),
       });

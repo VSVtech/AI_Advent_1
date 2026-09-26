@@ -63,6 +63,8 @@ test('каталог получает реальные инструменты MC
       'ping',
       'server_time',
       'get_weather',
+      'schedule_weather_collection',
+      'get_weather_summary',
     ]);
     expect(payload.servers[0].tools[2].inputSchema.required).toEqual(['city']);
   } finally {

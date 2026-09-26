@@ -14,6 +14,8 @@ RestartSec=3
 NoNewPrivileges=true
 ProtectSystem=full
 ProtectHome=read-only
+# JSON-хранилище погодных заданий и сводок (создать заранее: mkdir -p).
+ReadWritePaths=/home/user/mcp-demo/data
 PrivateTmp=true
 
 [Install]

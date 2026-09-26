@@ -229,6 +229,7 @@ async function generateStructuredOutput({
               toolInputTokens: mcpResult.toolInputTokens,
               toolOutputTokens: mcpResult.toolOutputTokens,
               mcpTools: mcpResult.usedTools,
+              weatherJobId: mcpConnection?.scheduledWeatherJobIds?.at(-1),
             }
           : {}),
       });
@@ -508,6 +509,7 @@ export async function POST(request: Request): Promise<Response> {
         toolInputTokens: result.toolInputTokens,
         toolOutputTokens: result.toolOutputTokens,
         mcpTools: result.usedTools,
+        weatherJobId: mcpConnection.scheduledWeatherJobIds?.at(-1),
       });
     });
   }

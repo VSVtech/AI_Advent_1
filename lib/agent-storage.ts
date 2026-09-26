@@ -284,6 +284,13 @@ function restoreMessage(value: unknown): ChatMessage | null {
     )
       ? (value.mcpTools as string[])
       : undefined;
+  // Without the job id a reopened chat could not receive the weather result.
+  const weatherJobId =
+    value.role === 'assistant' &&
+    typeof value.weatherJobId === 'string' &&
+    /^[a-zA-Z0-9_-]{1,100}$/u.test(value.weatherJobId)
+      ? value.weatherJobId
+      : undefined;
   const restoredAttachments =
     value.role === 'user' && Array.isArray(value.attachments)
       ? value.attachments.flatMap((attachment) => {
@@ -331,6 +338,10 @@ function restoreMessage(value: unknown): ChatMessage | null {
     ...(toolInputTokens === undefined ? {} : { toolInputTokens }),
     ...(toolOutputTokens === undefined ? {} : { toolOutputTokens }),
     ...(mcpTools === undefined ? {} : { mcpTools }),
+    ...(weatherJobId === undefined ? {} : { weatherJobId }),
+    ...(weatherJobId !== undefined && value.weatherJobResult === true
+      ? { weatherJobResult: true }
+      : {}),
   };
 }
 

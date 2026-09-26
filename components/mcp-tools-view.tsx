@@ -1,10 +1,22 @@
 'use client';
 
-import { Cloud, LoaderCircle, RefreshCw, Server, Wrench } from 'lucide-react';
+import {
+  Cloud,
+  CloudRain,
+  LoaderCircle,
+  RefreshCw,
+  Server,
+  Thermometer,
+  Wrench,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import type { McpDirectoryResponse, McpToolInfo } from '@/lib/mcp-directory';
+import {
+  WEATHER_SUMMARY_URL,
+  type WeatherSummaryResponse,
+} from '@/lib/weather-summary';
 
 function ToolArguments({ schema }: { schema: McpToolInfo['inputSchema'] }) {
   const properties = Object.entries(schema.properties ?? {});
@@ -31,8 +43,11 @@ function ToolArguments({ schema }: { schema: McpToolInfo['inputSchema'] }) {
 
 export function McpToolsView() {
   const [directory, setDirectory] = useState<McpDirectoryResponse | null>(null);
+  const [weatherSummary, setWeatherSummary] =
+    useState<WeatherSummaryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [requestFailed, setRequestFailed] = useState(false);
+  const [summaryFailed, setSummaryFailed] = useState(false);
   const requestRef = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
@@ -43,15 +58,37 @@ export function McpToolsView() {
     setRequestFailed(false);
 
     try {
-      const response = await fetch('/api/mcp', {
-        cache: 'no-store',
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error('MCP directory request failed');
-      const payload = (await response.json()) as McpDirectoryResponse;
-      if (!Array.isArray(payload.servers))
-        throw new Error('Invalid MCP directory');
-      setDirectory(payload);
+      const [directoryResult, summaryResult] = await Promise.allSettled([
+        fetch('/api/mcp', {
+          cache: 'no-store',
+          signal: controller.signal,
+        }),
+        fetch(WEATHER_SUMMARY_URL, {
+          cache: 'no-store',
+          signal: controller.signal,
+        }),
+      ]);
+      if (controller.signal.aborted) return;
+      if (directoryResult.status === 'fulfilled' && directoryResult.value.ok) {
+        const payload =
+          (await directoryResult.value.json()) as McpDirectoryResponse;
+        if (!Array.isArray(payload.servers))
+          throw new Error('Invalid MCP directory');
+        setDirectory(payload);
+      } else {
+        setRequestFailed(true);
+      }
+      if (summaryResult.status === 'fulfilled' && summaryResult.value.ok) {
+        const payload =
+          (await summaryResult.value.json()) as WeatherSummaryResponse;
+        if (payload.status !== 'ready' && payload.status !== 'pending') {
+          throw new Error('Invalid weather summary');
+        }
+        setWeatherSummary(payload);
+        setSummaryFailed(false);
+      } else {
+        setSummaryFailed(true);
+      }
     } catch {
       if (!controller.signal.aborted) setRequestFailed(true);
     } finally {
@@ -61,8 +98,10 @@ export function McpToolsView() {
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => void refresh(), 0);
+    const intervalId = window.setInterval(() => void refresh(), 60_000);
     return () => {
       window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
       requestRef.current?.abort();
     };
   }, [refresh]);
@@ -98,6 +137,71 @@ export function McpToolsView() {
 
       <div className="min-h-0 overflow-y-auto px-4 py-6 sm:px-6">
         <div className="mx-auto max-w-3xl space-y-4">
+          <section
+            className="rounded-2xl border border-white/8 bg-white/[0.025] p-4 sm:p-5"
+            aria-label="Погодная сводка"
+          >
+            <div className="mb-3 flex items-center gap-2 text-emerald-200">
+              <Thermometer className="size-5" aria-hidden="true" />
+              <h2 className="text-base font-semibold text-white">
+                Погода за день · Москва
+              </h2>
+            </div>
+            {weatherSummary?.status === 'ready' ? (
+              <div className="space-y-2 text-sm text-white/65">
+                <p className="text-lg font-medium text-white">
+                  {new Intl.DateTimeFormat('ru-RU', {
+                    day: 'numeric',
+                    month: 'long',
+                    timeZone: 'Europe/Moscow',
+                  }).format(
+                    new Date(`${weatherSummary.summary.date}T12:00:00+03:00`),
+                  )}
+                  {weatherSummary.summary.minTemperatureC === null ||
+                  weatherSummary.summary.maxTemperatureC === null
+                    ? ' · нет замеров'
+                    : ` · ${weatherSummary.summary.minTemperatureC.toLocaleString('ru-RU')}…${weatherSummary.summary.maxTemperatureC.toLocaleString('ru-RU')} °C`}
+                </p>
+                <p className="flex items-center gap-2">
+                  <CloudRain className="size-4" aria-hidden="true" />
+                  Дождь:{' '}
+                  {weatherSummary.summary.rainObserved === null
+                    ? 'нет данных'
+                    : weatherSummary.summary.rainObserved
+                      ? 'был'
+                      : 'не зафиксирован'}
+                </p>
+                <p className="text-white/40">
+                  {weatherSummary.summary.sampleCount} часовых замеров · сводка
+                  формируется в 16:00 МСК
+                </p>
+              </div>
+            ) : summaryFailed ? (
+              <p className="text-sm text-amber-200">
+                Сводка недоступна: MCP-сервер капсулы не отвечает.
+              </p>
+            ) : (
+              <p className="text-sm text-white/50">
+                Пока нет сводки. Первый отчёт появится после 16:00 МСК.
+              </p>
+            )}
+            {weatherSummary?.scheduler?.state === 'error' ? (
+              <output className="mt-3 block text-sm text-amber-200">
+                Новый замер через MCP пока не получен. Планировщик (cron)
+                повторит попытку.
+              </output>
+            ) : weatherSummary?.scheduler?.lastSampleAt ? (
+              <p className="mt-3 text-xs text-white/40">
+                Последний замер:{' '}
+                {new Intl.DateTimeFormat('ru-RU', {
+                  dateStyle: 'short',
+                  timeStyle: 'short',
+                  timeZone: 'Europe/Moscow',
+                }).format(new Date(weatherSummary.scheduler.lastSampleAt))}{' '}
+                МСК
+              </p>
+            ) : null}
+          </section>
           {requestFailed ? (
             <p
               role="alert"

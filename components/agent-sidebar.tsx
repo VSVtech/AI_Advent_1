@@ -2,6 +2,7 @@
 /* oxlint-disable next/no-html-link-for-pages -- Vinext has no Next Link package in the test runtime. */
 
 import {
+  CloudRain,
   ListTodo,
   Plus,
   Sparkles,
@@ -9,11 +10,75 @@ import {
   UserRound,
   Wrench,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { useAgentSnapshot } from '@/hooks/use-agent';
 import type { Agent } from '@/lib/agent';
 import { formatModelLabel } from '@/lib/chat-constraints';
+import {
+  WEATHER_SUMMARY_URL,
+  type DailyWeatherSummary,
+  type WeatherSummaryResponse,
+} from '@/lib/weather-summary';
+
+function WeatherReportLink({ onOpen }: { onOpen: () => void }) {
+  const [report, setReport] = useState<DailyWeatherSummary | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await fetch(WEATHER_SUMMARY_URL, {
+          cache: 'no-store',
+        });
+        if (!response.ok) return;
+        const payload = (await response.json()) as WeatherSummaryResponse;
+        if (active && payload.status === 'ready') setReport(payload.summary);
+      } catch {
+        // The weather report is optional; the rest of the sidebar stays usable.
+      }
+    };
+    void refresh();
+    const intervalId = window.setInterval(() => void refresh(), 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  if (!report) return null;
+  const range =
+    report.minTemperatureC === null || report.maxTemperatureC === null
+      ? 'нет замеров'
+      : `${report.minTemperatureC.toLocaleString('ru-RU')}…${report.maxTemperatureC.toLocaleString('ru-RU')} °C`;
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-start gap-2 rounded-xl border border-emerald-300/15 bg-emerald-300/[0.05] px-3 py-2.5 text-left text-xs leading-5 text-white/65 hover:bg-emerald-300/10"
+    >
+      <CloudRain
+        className="mt-0.5 size-4 shrink-0 text-emerald-200"
+        aria-hidden="true"
+      />
+      <span>
+        <span className="block font-medium text-white/85">
+          Погода · {report.date}
+        </span>
+        <span>
+          {range} · дождь{' '}
+          {report.rainObserved === null
+            ? 'неизвестен'
+            : report.rainObserved
+              ? 'был'
+              : 'не зафиксирован'}
+        </span>
+      </span>
+    </button>
+  );
+}
 
 function AgentListItem({
   agent,
@@ -123,6 +188,7 @@ export function AgentSidebar({
           <Wrench className="size-4" />
           MCP Инструменты
         </Button>
+        <WeatherReportLink onOpen={onOpenMcpTools} />
         <Button
           type="button"
           variant="outline"

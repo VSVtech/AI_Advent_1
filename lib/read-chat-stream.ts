@@ -43,6 +43,7 @@ function parseEventBlock(block: string): ChatStreamEvent | null {
     const toolInputTokens = data.toolInputTokens;
     const toolOutputTokens = data.toolOutputTokens;
     const mcpTools = data.mcpTools;
+    const weatherJobId = data.weatherJobId;
     const isNonNegativeInt = (value: unknown): value is number =>
       typeof value === 'number' && Number.isInteger(value) && value >= 0;
 
@@ -65,6 +66,10 @@ function parseEventBlock(block: string): ChatStreamEvent | null {
       mcpTools.length <= 8 &&
       mcpTools.every((name) => typeof name === 'string' && name.length <= 128)
         ? { mcpTools }
+        : {}),
+      ...(typeof weatherJobId === 'string' &&
+      /^[a-zA-Z0-9_-]{1,100}$/u.test(weatherJobId)
+        ? { weatherJobId }
         : {}),
     };
   }

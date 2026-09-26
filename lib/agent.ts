@@ -61,6 +61,10 @@ import {
   type MemoryEntry,
 } from '@/lib/memory-layers';
 import { type AgentProfileMode } from '@/lib/user-profile';
+import {
+  fetchWeatherJobResults,
+  MAX_TRACKED_WEATHER_JOBS,
+} from '@/lib/weather-jobs';
 
 export interface AgentConfig {
   profileMode: AgentProfileMode;
@@ -372,6 +376,7 @@ export class Agent {
   private activeBranchId = 'main';
   private checkpointMessageId: string | null = null;
   private mergeStatus: string | null = null;
+  private isSyncingWeatherJobs = false;
   private isGenerating = false;
   private error: string | null = null;
   private abortController: AbortController | null = null;
@@ -518,6 +523,64 @@ export class Agent {
   };
 
   getSnapshot = (): AgentSnapshot => this.snapshot;
+
+  // Weather jobs run on the MCP server; their result is added to the chat that
+  // started them once the server reports the job as finished.
+  async syncWeatherJobs(): Promise<void> {
+    if (this.isSyncingWeatherJobs || this.isGenerating) return;
+    const pendingJobIds = this.pendingWeatherJobIds();
+    if (pendingJobIds.length === 0) return;
+    this.isSyncingWeatherJobs = true;
+    try {
+      const results = await fetchWeatherJobResults(
+        pendingJobIds,
+        this.config.model,
+      );
+      for (const result of results) {
+        if (
+          result.status === 'running' ||
+          !this.pendingWeatherJobIds().includes(result.id)
+        ) {
+          continue;
+        }
+        this.messages = [
+          ...this.messages,
+          {
+            id: createId(),
+            role: 'assistant',
+            content: result.content,
+            status: 'complete',
+            format: 'text',
+            weatherJobId: result.id,
+            weatherJobResult: true,
+          },
+        ];
+        this.notify();
+      }
+    } catch {
+      // The capsule keeps collecting; the next sync asks again.
+    } finally {
+      this.isSyncingWeatherJobs = false;
+    }
+  }
+
+  private pendingWeatherJobIds(): string[] {
+    const delivered = new Set(
+      this.messages.flatMap((message) =>
+        message.weatherJobResult && message.weatherJobId
+          ? [message.weatherJobId]
+          : [],
+      ),
+    );
+    const pending = this.messages.flatMap((message) =>
+      message.weatherJobId &&
+      !message.weatherJobResult &&
+      !delivered.has(message.weatherJobId)
+        ? [message.weatherJobId]
+        : [],
+    );
+    return [...new Set(pending)].slice(-MAX_TRACKED_WEATHER_JOBS);
+  }
 
   getFacts(): MemoryFacts {
     return { ...this.facts };
@@ -1491,6 +1554,9 @@ export class Agent {
             ...(event.mcpTools === undefined
               ? {}
               : { mcpTools: event.mcpTools }),
+            ...(event.weatherJobId === undefined
+              ? {}
+              : { weatherJobId: event.weatherJobId }),
           }));
         } else if (event.type === 'error') {
           throw new Error(event.message);

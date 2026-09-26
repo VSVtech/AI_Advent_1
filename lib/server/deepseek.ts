@@ -282,6 +282,7 @@ export function completedOutputResponse(
     toolInputTokens?: number | null;
     toolOutputTokens?: number | null;
     mcpTools?: string[];
+    weatherJobId?: string;
   },
 ): Response {
   return eventStreamResponse(
@@ -319,6 +320,7 @@ export function completedOutputResponse(
               ? {}
               : { toolOutputTokens: usage.toolOutputTokens }),
             ...(usage.mcpTools?.length ? { mcpTools: usage.mcpTools } : {}),
+            ...(usage.weatherJobId ? { weatherJobId: usage.weatherJobId } : {}),
           }),
         );
         controller.close();

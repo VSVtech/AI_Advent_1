@@ -306,15 +306,23 @@ export function McpToolsView() {
             </div>
             <div className="space-y-4">
               {AGENT_SKILLS.map((skill) => {
-                const ready =
-                  directory !== null &&
-                  skill.tools.every((tool) =>
-                    directory.servers.some(
-                      (server) =>
-                        server.status === 'connected' &&
-                        server.tools.some((item) => item.name === tool),
-                    ),
-                  );
+                const connectedServers =
+                  directory?.servers.filter(
+                    (server) => server.status === 'connected',
+                  ) ?? [];
+                const ready = skill.tools.every((tool) =>
+                  connectedServers.some((server) =>
+                    server.tools.some((item) => item.name === tool),
+                  ),
+                );
+                // An unreachable server is not the same as missing tools.
+                const status = ready
+                  ? 'Готов'
+                  : connectedServers.length > 0
+                    ? 'Нет инструментов на сервере'
+                    : isLoading
+                      ? 'Проверяю…'
+                      : 'MCP недоступен';
                 return (
                   <div key={skill.id} className="space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -328,7 +336,7 @@ export function McpToolsView() {
                             : 'bg-amber-300/10 text-amber-200'
                         }`}
                       >
-                        {ready ? 'Готов' : 'Нет инструментов на сервере'}
+                        {status}
                       </span>
                     </div>
                     <p className="text-sm leading-6 text-white/55">

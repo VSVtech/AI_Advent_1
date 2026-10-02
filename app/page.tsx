@@ -7,6 +7,7 @@ import { AgentChat } from '@/components/agent-chat';
 import { AgentSetup } from '@/components/agent-setup';
 import { AgentSidebar } from '@/components/agent-sidebar';
 import { McpToolsView } from '@/components/mcp-tools-view';
+import { KnowledgeBaseView } from '@/components/knowledge-base-view';
 import { TaskSetup } from '@/components/task-setup';
 import { TaskWorkspace } from '@/components/task-workspace';
 import { Agent, createDefaultAgentConfig, type AgentConfig } from '@/lib/agent';
@@ -14,7 +15,14 @@ import { loadAgentSessions, saveAgentSessions } from '@/lib/agent-storage';
 import { SharedLongTermMemory } from '@/lib/memory-layers';
 import { loadGeneralProfile } from '@/lib/user-profile';
 
-type View = 'empty' | 'setup' | 'chat' | 'task-setup' | 'task' | 'mcp-tools';
+type View =
+  | 'empty'
+  | 'setup'
+  | 'chat'
+  | 'task-setup'
+  | 'task'
+  | 'mcp-tools'
+  | 'knowledge-base';
 
 export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -165,18 +173,26 @@ export default function Home() {
       <div className="app-frame flex flex-col md:flex-row">
         <AgentSidebar
           agents={agents}
-          activeAgentId={view === 'mcp-tools' ? null : activeAgentId}
+          activeAgentId={
+            view === 'mcp-tools' || view === 'knowledge-base'
+              ? null
+              : activeAgentId
+          }
           onSelect={handleSelect}
           onCreate={() => setView('setup')}
           onCreateTask={() => setView('task-setup')}
           onOpenMcpTools={() => setView('mcp-tools')}
           isMcpToolsActive={view === 'mcp-tools'}
+          onOpenKnowledgeBase={() => setView('knowledge-base')}
+          isKnowledgeBaseActive={view === 'knowledge-base'}
           onSelectTask={handleSelectTask}
           onDelete={handleDelete}
         />
 
         <div className="section-panel flex-1">
-          {view === 'mcp-tools' ? (
+          {view === 'knowledge-base' ? (
+            <KnowledgeBaseView />
+          ) : view === 'mcp-tools' ? (
             <McpToolsView />
           ) : view === 'setup' ? (
             <AgentSetup

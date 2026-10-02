@@ -19,10 +19,17 @@
     "mcp:notes": "node scripts/mcp-servers/notes.mjs",
     "weather:tick": "node scripts/mcp/weather-tick.mjs",
     "test": "vitest run --config vitest.config.ts",
-    "test:watch": "vitest --config vitest.config.ts"
+    "test:watch": "vitest --config vitest.config.ts",
+    "rag:ollama": "node scripts/rag/ollama.mjs",
+    "rag:setup": "node scripts/rag/setup.mjs",
+    "rag:index": "node scripts/rag/cli.mjs index",
+    "rag:compare": "node scripts/rag/cli.mjs compare",
+    "rag:search": "node scripts/rag/cli.mjs search",
+    "rag:server": "node scripts/rag/server.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
+    "@huggingface/tokenizers": "^0.2.0",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",

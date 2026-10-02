@@ -62,6 +62,13 @@ for mcp_server in travel notes; do
   local_mcp_pids="$local_mcp_pids $!"
 done
 
+node scripts/rag/server.mjs &
+local_mcp_pids="$local_mcp_pids $!"
+if command -v ollama >/dev/null 2>&1 || [[ -x .local-data/rag/runtime/ollama ]]; then
+  node scripts/rag/ollama.mjs &
+  local_mcp_pids="$local_mcp_pids $!"
+fi
+
 cleanup() {
   for pid in $local_mcp_pids; do
     kill "$pid" 2>/dev/null || true

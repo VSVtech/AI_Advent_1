@@ -2,6 +2,7 @@
 /* oxlint-disable next/no-html-link-for-pages -- Vinext has no Next Link package in the test runtime. */
 
 import {
+  BookOpen,
   CloudRain,
   ListTodo,
   Plus,
@@ -140,6 +141,8 @@ export function AgentSidebar({
   onCreateTask,
   onOpenMcpTools,
   isMcpToolsActive,
+  onOpenKnowledgeBase,
+  isKnowledgeBaseActive,
   onSelectTask,
   onDelete,
 }: {
@@ -150,6 +153,8 @@ export function AgentSidebar({
   onCreateTask: () => void;
   onOpenMcpTools: () => void;
   isMcpToolsActive: boolean;
+  onOpenKnowledgeBase?: () => void;
+  isKnowledgeBaseActive?: boolean;
   onSelectTask: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
@@ -189,6 +194,16 @@ export function AgentSidebar({
           MCP Инструменты
         </Button>
         <WeatherReportLink onOpen={onOpenMcpTools} />
+        <Button
+          type="button"
+          variant="outline"
+          className={`min-h-10 w-full justify-start gap-2 border-white/10 bg-white/[0.035] text-white/80${isKnowledgeBaseActive ? ' border-emerald-300/25 bg-emerald-300/10 text-emerald-200' : ''}`}
+          onClick={onOpenKnowledgeBase}
+          aria-current={isKnowledgeBaseActive || undefined}
+        >
+          <BookOpen className="size-4" />
+          База знаний
+        </Button>
         <Button
           type="button"
           variant="outline"

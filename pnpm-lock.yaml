@@ -11,6 +11,9 @@ importers:
       '@base-ui/react':
         specifier: 1.7.0
         version: 1.7.0(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.1.0)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@huggingface/tokenizers':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@modelcontextprotocol/client':
         specifier: ^2.0.0
         version: 2.0.0
@@ -571,6 +574,9 @@ packages:
     engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
+
+  '@huggingface/tokenizers@0.2.0':
+    resolution: {integrity: sha512-LidMHe1FpcSYH4vcSjXooda34pC0M8m1gmDOv7SQi6Iv+ib1zX7J3sHBCC9/3FPCkn2k1b55FneVqMRxrr99pg==}
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -4428,6 +4434,8 @@ snapshots:
   '@hono/node-server@2.1.1(hono@4.13.5)':
     dependencies:
       hono: 4.13.5
+
+  '@huggingface/tokenizers@0.2.0': {}
 
   '@img/colour@1.1.0': {}
 

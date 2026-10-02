@@ -1,0 +1,282 @@
+[
+  {
+    "id": "q01",
+    "question": "Где сохраняются сессии после закрытия браузера?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 2043,
+        "end_offset": 2216,
+        "quote": "- Сессии сохраняются в `localStorage` в версионированном формате. Повреждённые\n  записи игнорируются, а незавершённый поток после перезапуска помечается как\n  остановленный."
+      }
+    ]
+  },
+  {
+    "id": "q02",
+    "question": "Как React узнаёт об изменениях состояния агента?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 1563,
+        "end_offset": 1825,
+        "quote": "- Состояние агента наружу отдаётся через простой паттерн\n  `subscribe`/`getSnapshot` (без хранения его в React state), а\n  `hooks/use-agent.ts` подписывает компонент на изменения через\n  `useSyncExternalStore`, чтобы чат перерисовывался при каждой дельте ответа."
+      }
+    ]
+  },
+  {
+    "id": "q03",
+    "question": "Что происходит с исходными ветками при их объединении?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 2572,
+        "end_offset": 2849,
+        "quote": "- `Agent.mergeBranches(firstId, secondId)` суммаризирует каждую выбранную ветку\n  отдельными запросами, затем объединяет две сводки ещё одним запросом.\n  Итоговое summary сохраняется в новой ветке и подставляется в её будущие\n  запросы; исходные ветки и их истории не меняются."
+      }
+    ]
+  },
+  {
+    "id": "q04",
+    "question": "Какие данные из памяти передаются при Sliding Window?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 6762,
+        "end_offset": 6905,
+        "quote": "В режимах без\nсжатия, Sticky Facts и\nBranching сессионное сообщение содержит и краткосрочные факты; при Sliding\nWindow — только рабочие записи."
+      }
+    ]
+  },
+  {
+    "id": "q05",
+    "question": "Применится ли изменение General Profile к уже созданному агенту?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 7657,
+        "end_offset": 7882,
+        "quote": "При создании агента галочка «Использовать стандартный профиль» включена по\nумолчанию. Такой агент берёт актуальный текст General Profile при **каждом**\nзапросе, поэтому изменения страницы действуют и на уже созданных агентов."
+      }
+    ]
+  },
+  {
+    "id": "q06",
+    "question": "Что приоритетнее при конфликте профиля и текущего запроса?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 8285,
+        "end_offset": 8415,
+        "quote": "При конфликте агент\nориентируется на последнее явное сообщение пользователя, затем на память\nтекущего контекста, затем на профиль."
+      }
+    ]
+  },
+  {
+    "id": "q07",
+    "question": "Как проверяются инварианты перед показом ответа?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 14363,
+        "end_offset": 14590,
+        "quote": "Для задачи с\nинвариантами сервер сначала получает полный ответ, затем отдельным запросом к\nLLM проверяет его по списку. Нарушающий ответ не показывается: сервер до двух\nраз повторяет генерацию с указанием конкретного нарушения."
+      }
+    ]
+  },
+  {
+    "id": "q08",
+    "question": "Где хранятся заметки, сохранённые через MCP?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 24826,
+        "end_offset": 24967,
+        "quote": "- **Заметки** (`scripts/mcp-servers/notes.mjs`, порт 18802) — `save_note`,\n  `list_notes`, `read_note`: Markdown-файлы в `.local-data/notes`."
+      }
+    ]
+  },
+  {
+    "id": "q09",
+    "question": "Что произойдёт, если одинаковый инструмент есть на двух MCP-серверах?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 25293,
+        "end_offset": 25394,
+        "quote": "Если одно имя инструмента есть на нескольких серверах, оно\nполучает префикс сервера (`ai-vps__ping`)."
+      }
+    ]
+  },
+  {
+    "id": "q10",
+    "question": "Какие ограничения есть на число вызовов инструментов за ответ?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 25448,
+        "end_offset": 25514,
+        "quote": "За один ответ агент делает до 6 раундов и 12 вызовов\nинструментов."
+      }
+    ]
+  },
+  {
+    "id": "q11",
+    "question": "Продолжится ли сбор погоды, когда мой компьютер выключен?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 22323,
+        "end_offset": 22425,
+        "quote": "Капсула работает\nкруглосуточно, поэтому сбор не зависит от того, открыт ли чат и включён ли\nкомпьютер."
+      }
+    ]
+  },
+  {
+    "id": "q12",
+    "question": "Как связаны поиск концерта и получение погоды?",
+    "category": "documentation",
+    "evidence": [
+      {
+        "source": "README.md",
+        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "start_offset": 23756,
+        "end_offset": 23895,
+        "quote": "связывает два MCP-инструмента в цепочку: сначала `find_concert` получает\nгород, затем `get_weather` запрашивает погоду ровно в этом городе."
+      }
+    ]
+  },
+  {
+    "id": "q13",
+    "question": "Сколько вложений можно отправить в одном сообщении и каков лимит размера картинки?",
+    "category": "code",
+    "evidence": [
+      {
+        "source": "lib/file-attachments.ts",
+        "content_hash": "23a4b9e19a41ccc0cb9272636cc7d7041d8c48b947ecc74caf3e5602604671e8",
+        "start_offset": 61,
+        "end_offset": 166,
+        "quote": "export const MAX_ATTACHMENTS_PER_MESSAGE = 5;\nexport const MAX_IMAGE_ATTACHMENT_BYTES = 10 * 1024 * 1024;"
+      }
+    ]
+  },
+  {
+    "id": "q14",
+    "question": "Как код отменяет выполняющийся запрос агента?",
+    "category": "code",
+    "evidence": [
+      {
+        "source": "lib/agent.ts",
+        "content_hash": "e50f0a37e4ad0acdcc045dad07f671160c43112c1ed5a327969a3b18a7cdb12a",
+        "start_offset": 53637,
+        "end_offset": 53692,
+        "quote": "  stop(): void {\n    this.abortController?.abort();\n  }"
+      }
+    ]
+  },
+  {
+    "id": "q15",
+    "question": "Как освобождаются подписки при удалении агента?",
+    "category": "code",
+    "evidence": [
+      {
+        "source": "lib/agent.ts",
+        "content_hash": "e50f0a37e4ad0acdcc045dad07f671160c43112c1ed5a327969a3b18a7cdb12a",
+        "start_offset": 54296,
+        "end_offset": 54420,
+        "quote": "  dispose(): void {\n    this.abortController?.abort();\n    this.unsubscribeLongTermMemory();\n    this.listeners.clear();\n  }"
+      }
+    ]
+  },
+  {
+    "id": "q16",
+    "question": "Что делает классификатор вложений с неподдерживаемым форматом?",
+    "category": "code",
+    "evidence": [
+      {
+        "source": "lib/file-attachments.ts",
+        "content_hash": "23a4b9e19a41ccc0cb9272636cc7d7041d8c48b947ecc74caf3e5602604671e8",
+        "start_offset": 1542,
+        "end_offset": 2005,
+        "quote": "export function classifyAttachment(\n  file: Pick<FileDescriptor, 'name' | 'type'>,\n): ChatAttachmentKind | null {\n  const mediaType = file.type.toLowerCase();\n\n  if (\n    IMAGE_MEDIA_TYPES.has(mediaType) ||\n    IMAGE_EXTENSIONS.has(extensionOf(file.name))\n  ) {\n    return 'image';\n  }\n  if (\n    mediaType.startsWith('text/') ||\n    TEXT_MEDIA_TYPES.has(mediaType) ||\n    TEXT_EXTENSIONS.has(extensionOf(file.name))\n  ) {\n    return 'text';\n  }\n\n  return null;\n}"
+      }
+    ]
+  },
+  {
+    "id": "q17",
+    "question": "Почему перед загрузкой изображения требуется API-ключ?",
+    "category": "code",
+    "evidence": [
+      {
+        "source": "app/api/files/route.ts",
+        "content_hash": "0de99fdef1a675877139a81c14a3ad3f4c6aa95363d834ff42b1d3f47e89cb29",
+        "start_offset": 428,
+        "end_offset": 652,
+        "quote": "  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();\n\n  if (!apiKey) {\n    return jsonError(500, {\n      code: 'configuration_error',\n      message: 'DEEPSEEK_API_KEY не настроен. Добавьте токен в .env.local.',\n    });\n  }"
+      }
+    ]
+  },
+  {
+    "id": "q18",
+    "question": "Какие локальные порты используются для серверов поездок и заметок?",
+    "category": "code",
+    "evidence": [
+      {
+        "source": "lib/server/mcp-config.ts",
+        "content_hash": "f0cee3ca4d979b9515839a2deff49a8b2781b58aa7544efe3c143e9d498abb2b",
+        "start_offset": 69,
+        "end_offset": 203,
+        "quote": "export const DEFAULT_MCP_TRAVEL_URL = 'http://127.0.0.1:18801/mcp';\nexport const DEFAULT_MCP_NOTES_URL = 'http://127.0.0.1:18802/mcp';"
+      }
+    ]
+  },
+  {
+    "id": "q19",
+    "question": "Какой лимит числа фактов и длины значения факта задан в контексте?",
+    "category": "code",
+    "evidence": [
+      {
+        "source": "lib/context-strategy.ts",
+        "content_hash": "eed024c4dbf5e65eb1c4daf9a84644d9b5fd46285c16f0df1e972790629fde25",
+        "start_offset": 147,
+        "end_offset": 256,
+        "quote": "export const MAX_FACTS = 20;\nexport const MAX_FACT_KEY_LENGTH = 80;\nexport const MAX_FACT_VALUE_LENGTH = 500;"
+      }
+    ]
+  },
+  {
+    "id": "q20",
+    "question": "Какие форматы изображений допускает классификатор вложений?",
+    "category": "code",
+    "evidence": [
+      {
+        "source": "lib/file-attachments.ts",
+        "content_hash": "23a4b9e19a41ccc0cb9272636cc7d7041d8c48b947ecc74caf3e5602604671e8",
+        "start_offset": 387,
+        "end_offset": 488,
+        "quote": "const IMAGE_MEDIA_TYPES = new Set([\n  'image/jpeg',\n  'image/png',\n  'image/gif',\n  'image/webp',\n]);"
+      }
+    ]
+  }
+]

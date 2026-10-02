@@ -1,3 +1,13 @@
+import {
+  RAG_INSTRUCTIONS,
+  withRagContext,
+  type RagRetrieval,
+} from '@/lib/rag-context';
+import {
+  RagError,
+  retrieveRagContext,
+  withRagMetadata,
+} from '@/lib/server/rag';
 import type {
   ApiChatMessage,
   ChatOutputFormat,
@@ -269,6 +279,19 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
+  if (
+    (body.useRag !== undefined && typeof body.useRag !== 'boolean') ||
+    (body.ragBuildId !== undefined &&
+      (body.useRag !== true ||
+        typeof body.ragBuildId !== 'string' ||
+        !/^[a-zA-Z0-9-]{1,100}$/u.test(body.ragBuildId)))
+  ) {
+    return jsonError(400, {
+      code: 'invalid_rag_mode',
+      message: 'Режим RAG или версия индекса указаны некорректно.',
+    });
+  }
+
   const outputFormat = body.format ?? 'text';
 
   if (!isChatOutputFormat(outputFormat)) {
@@ -383,7 +406,7 @@ export async function POST(request: Request): Promise<Response> {
   const transitionMessage = taskState
     ? buildTaskTransitionMessage(taskState)
     : null;
-  const requestMessages = transitionMessage
+  let requestMessages = transitionMessage
     ? [...body.messages.slice(0, -1), transitionMessage, body.messages.at(-1)!]
     : body.messages;
 
@@ -419,7 +442,7 @@ export async function POST(request: Request): Promise<Response> {
   );
   const profilePrompt = profile ? buildUserProfileSystemPrompt(profile) : null;
   const taskPrompt = taskState ? buildTaskStateSystemPrompt(taskState) : null;
-  const systemPrompt =
+  let systemPrompt =
     [configuredPrompt, profilePrompt, longTermPrompt, taskPrompt]
       .filter(Boolean)
       .join('\n\n') || null;
@@ -441,131 +464,167 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  const mcpConnection = body.useMcpTools
-    ? await connectAgentMcp(request.signal)
-    : null;
-  if (request.signal.aborted) return new Response(null, { status: 499 });
-
-  if (taskState && systemPrompt) {
-    return withMcpConnection(mcpConnection, () =>
-      generateInvariantSafeOutput({
-        apiKey,
-        contextWindowTokens,
-        format: outputFormat,
-        maxOutputTokens,
-        mcpConnection,
-        messages: requestMessages,
-        model,
-        signal: request.signal,
-        state: taskState,
-        systemPrompt,
-        temperature,
-      }),
-    );
-  }
-
-  if (isStructuredOutputFormat(outputFormat)) {
-    return withMcpConnection(mcpConnection, () =>
-      generateStructuredOutput({
-        apiKey,
-        contextWindowTokens,
-        format: outputFormat,
-        maxOutputTokens,
-        mcpConnection,
-        messages: requestMessages,
-        model,
-        signal: request.signal,
-        systemPrompt,
-        temperature,
-      }),
-    );
-  }
-
-  if (mcpConnection) {
-    return withMcpConnection(mcpConnection, async () => {
-      const result = await generateWithMcpTools({
-        apiKey,
-        connection: mcpConnection,
-        contextWindowTokens,
-        maxOutputTokens,
-        messages: requestMessages,
-        model,
-        signal: request.signal,
-        systemPrompt,
-        temperature,
-        textFormat: { type: 'text' },
+  let retrieval: RagRetrieval | null = null;
+  if (body.useRag) {
+    try {
+      retrieval = await retrieveRagContext(
+        body.messages,
+        request.signal,
+        body.ragBuildId,
+      );
+      requestMessages = withRagContext(requestMessages, retrieval);
+      systemPrompt = [systemPrompt, RAG_INSTRUCTIONS]
+        .filter(Boolean)
+        .join('\n\n');
+    } catch (error) {
+      if (request.signal.aborted) return new Response(null, { status: 499 });
+      const failure =
+        error instanceof RagError
+          ? error
+          : new RagError('rag_failed', 'Не удалось подготовить контекст RAG.');
+      return jsonError(failure.status, {
+        code: failure.code,
+        message: failure.message,
       });
-      if (result instanceof Response) return result;
-      const content = extractOutputText(result.payload);
-      if (!content) {
-        return jsonError(502, {
-          code: 'invalid_model_output',
-          message: 'DeepSeek не смог сформировать ответ после обращения к MCP.',
-        });
-      }
-      return completedOutputResponse(content, {
-        outputTokens: extractOutputTokens(result.payload),
-        ...extractInputTokenUsage(result.payload),
-        toolInputTokens: result.toolInputTokens,
-        toolOutputTokens: result.toolOutputTokens,
-        mcpTools: result.usedTools,
-        weatherJobId: mcpConnection.scheduledWeatherJobIds?.at(-1),
-      });
+    }
+    const ragOverflow = contextWindowError({
+      contextWindowTokens,
+      messages: requestMessages,
+      systemPrompt,
     });
+    if (ragOverflow) return ragOverflow;
   }
 
-  let upstreamResponse: Response;
+  const generate = async (): Promise<Response> => {
+    const mcpConnection = body.useMcpTools
+      ? await connectAgentMcp(request.signal)
+      : null;
+    if (request.signal.aborted) return new Response(null, { status: 499 });
 
-  try {
-    upstreamResponse = await fetch(DEEPSEEK_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        input: requestMessages,
-        max_output_tokens: maxOutputTokens,
-        temperature,
-        stream: true,
-        reasoning: { effort: 'none' },
-        text: { format: { type: 'text' } },
-        ...(systemPrompt ? { instructions: systemPrompt } : {}),
-      }),
-      cache: 'no-store',
-      signal: request.signal,
-    });
-  } catch {
-    if (request.signal.aborted) {
-      return new Response(null, { status: 499 });
+    if (taskState && systemPrompt) {
+      return withMcpConnection(mcpConnection, () =>
+        generateInvariantSafeOutput({
+          apiKey,
+          contextWindowTokens,
+          format: outputFormat,
+          maxOutputTokens,
+          mcpConnection,
+          messages: requestMessages,
+          model,
+          signal: request.signal,
+          state: taskState,
+          systemPrompt,
+          temperature,
+        }),
+      );
     }
 
-    return jsonError(502, {
-      code: 'deepseek_unreachable',
-      message:
-        'Не удалось связаться с DeepSeek. Проверьте подключение к интернету.',
-    });
-  }
+    if (isStructuredOutputFormat(outputFormat)) {
+      return withMcpConnection(mcpConnection, () =>
+        generateStructuredOutput({
+          apiKey,
+          contextWindowTokens,
+          format: outputFormat,
+          maxOutputTokens,
+          mcpConnection,
+          messages: requestMessages,
+          model,
+          signal: request.signal,
+          systemPrompt,
+          temperature,
+        }),
+      );
+    }
 
-  if (!upstreamResponse.ok) return mappedUpstreamError(upstreamResponse);
+    if (mcpConnection) {
+      return withMcpConnection(mcpConnection, async () => {
+        const result = await generateWithMcpTools({
+          apiKey,
+          connection: mcpConnection,
+          contextWindowTokens,
+          maxOutputTokens,
+          messages: requestMessages,
+          model,
+          signal: request.signal,
+          systemPrompt,
+          temperature,
+          textFormat: { type: 'text' },
+        });
+        if (result instanceof Response) return result;
+        const content = extractOutputText(result.payload);
+        if (!content) {
+          return jsonError(502, {
+            code: 'invalid_model_output',
+            message:
+              'DeepSeek не смог сформировать ответ после обращения к MCP.',
+          });
+        }
+        return completedOutputResponse(content, {
+          outputTokens: extractOutputTokens(result.payload),
+          ...extractInputTokenUsage(result.payload),
+          toolInputTokens: result.toolInputTokens,
+          toolOutputTokens: result.toolOutputTokens,
+          mcpTools: result.usedTools,
+          weatherJobId: mcpConnection.scheduledWeatherJobIds?.at(-1),
+        });
+      });
+    }
 
-  if (!upstreamResponse.body) {
-    return jsonError(502, {
-      code: 'empty_upstream_response',
-      message: 'DeepSeek вернул пустой ответ. Попробуйте ещё раз.',
-    });
-  }
+    let upstreamResponse: Response;
 
-  return eventStreamResponse(
-    createNormalizedStream(
-      upstreamResponse.body,
-      request.signal,
-      body.maxOutputTokens === undefined
-        ? {}
-        : {
-            tokenLimitMessage: `Ответ DeepSeek достиг технического лимита вывода ${maxOutputTokens} токенов. Сократите требуемый ответ и повторите запрос.`,
-          },
-    ),
-  );
+    try {
+      upstreamResponse = await fetch(DEEPSEEK_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          input: requestMessages,
+          max_output_tokens: maxOutputTokens,
+          temperature,
+          stream: true,
+          reasoning: { effort: 'none' },
+          text: { format: { type: 'text' } },
+          ...(systemPrompt ? { instructions: systemPrompt } : {}),
+        }),
+        cache: 'no-store',
+        signal: request.signal,
+      });
+    } catch {
+      if (request.signal.aborted) {
+        return new Response(null, { status: 499 });
+      }
+
+      return jsonError(502, {
+        code: 'deepseek_unreachable',
+        message:
+          'Не удалось связаться с DeepSeek. Проверьте подключение к интернету.',
+      });
+    }
+
+    if (!upstreamResponse.ok) return mappedUpstreamError(upstreamResponse);
+
+    if (!upstreamResponse.body) {
+      return jsonError(502, {
+        code: 'empty_upstream_response',
+        message: 'DeepSeek вернул пустой ответ. Попробуйте ещё раз.',
+      });
+    }
+
+    return eventStreamResponse(
+      createNormalizedStream(
+        upstreamResponse.body,
+        request.signal,
+        body.maxOutputTokens === undefined
+          ? {}
+          : {
+              tokenLimitMessage: `Ответ DeepSeek достиг технического лимита вывода ${maxOutputTokens} токенов. Сократите требуемый ответ и повторите запрос.`,
+            },
+      ),
+    );
+  };
+  const response = await generate();
+  return retrieval ? withRagMetadata(response, retrieval) : response;
 }

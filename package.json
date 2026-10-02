@@ -25,7 +25,8 @@
     "rag:index": "node scripts/rag/cli.mjs index",
     "rag:compare": "node scripts/rag/cli.mjs compare",
     "rag:search": "node scripts/rag/cli.mjs search",
-    "rag:server": "node scripts/rag/server.mjs"
+    "rag:server": "node scripts/rag/server.mjs",
+    "rag:answers": "node scripts/rag/answers.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

@@ -67,6 +67,7 @@ import {
 } from '@/lib/weather-jobs';
 
 export interface AgentConfig {
+  useRag?: boolean;
   profileMode: AgentProfileMode;
   customProfile: string;
   model: string;
@@ -165,6 +166,14 @@ function createId(): string {
 function cloneMessage(message: ChatMessage): ChatMessage {
   return {
     ...message,
+    ...(message.rag
+      ? {
+          rag: {
+            ...message.rag,
+            sources: message.rag.sources.map((source) => ({ ...source })),
+          },
+        }
+      : {}),
     ...(message.attachments
       ? {
           attachments: message.attachments.map((attachment) => ({
@@ -327,6 +336,7 @@ function buildUnifiedSummaryPrompt(
 
 export function createDefaultAgentConfig(): AgentConfig {
   return {
+    useRag: false,
     profileMode: 'general',
     customProfile: '',
     model: DEFAULT_MODEL,
@@ -523,6 +533,13 @@ export class Agent {
   };
 
   getSnapshot = (): AgentSnapshot => this.snapshot;
+
+  setRagEnabled(enabled: boolean): boolean {
+    if (this.isGenerating) return false;
+    this.config.useRag = enabled;
+    this.notify();
+    return true;
+  }
 
   // Weather jobs run on the MCP server; their result is added to the chat that
   // started them once the server reports the job as finished.
@@ -1392,6 +1409,7 @@ export class Agent {
         content: '',
         status: 'streaming',
         format: this.config.outputFormat,
+        ragMode: this.config.useRag ? 'on' : 'off',
       };
       assistantMessageId = assistantMessage.id;
       this.messages = [...this.messages, userMessage, assistantMessage];
@@ -1487,6 +1505,7 @@ export class Agent {
           temperature: this.config.temperature,
           model: this.config.model,
           useMcpTools: true,
+          ...(this.config.useRag ? { useRag: true } : {}),
           useSystemPrompt: this.config.useSystemPrompt,
           useSelectorSystemPrompt: this.config.useSelectorSystemPrompt,
           ...(this.config.useSystemPrompt &&
@@ -1515,7 +1534,12 @@ export class Agent {
       let exactInputTokens: number | undefined;
 
       await readChatStream(response.body, (event: ChatStreamEvent) => {
-        if (event.type === 'delta') {
+        if (event.type === 'rag') {
+          this.updateAssistant(assistantMessage.id, (message) => ({
+            ...message,
+            rag: event.retrieval,
+          }));
+        } else if (event.type === 'delta') {
           this.updateAssistant(assistantMessage.id, (message) => ({
             ...message,
             content: message.content + event.content,

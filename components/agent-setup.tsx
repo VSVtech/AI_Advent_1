@@ -91,6 +91,7 @@ export function AgentSetup({
 }) {
   const { models: availableModels, error: modelsError } = useAvailableModels();
   const [name, setName] = useState('');
+  const [useRag, setUseRag] = useState(false);
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [outputFormat, setOutputFormat] = useState<ChatOutputFormat>('text');
   const [temperature, setTemperature] = useState(String(DEFAULT_TEMPERATURE));
@@ -162,6 +163,7 @@ export function AgentSetup({
     onCreate(
       {
         profileMode: useGeneralProfile ? 'general' : 'custom',
+        useRag,
         customProfile: normalizedCustomProfile ?? '',
         model: selectedModel,
         temperature: parsedTemperature,
@@ -241,6 +243,25 @@ export function AgentSetup({
             {modelsError ? (
               <p className="system-prompt-hint">{modelsError}</p>
             ) : null}
+          </div>
+
+          <div className="agent-setup-field">
+            <label className="format-label" htmlFor="agent-rag">
+              Поиск по базе знаний
+            </label>
+            <select
+              id="agent-rag"
+              value={useRag ? 'on' : 'off'}
+              onChange={(event) => setUseRag(event.target.value === 'on')}
+              className="agent-setup-input"
+            >
+              <option value="off">Без RAG</option>
+              <option value="on">С RAG — документы проекта</option>
+            </select>
+            <p className="system-prompt-hint">
+              При включении найденные фрагменты передаются DeepSeek вместе с
+              вопросом. Режим можно переключать в чате.
+            </p>
           </div>
 
           <div className="agent-setup-field">

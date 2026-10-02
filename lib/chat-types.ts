@@ -1,5 +1,6 @@
 import type { LongTermMemoryFact } from '@/lib/memory-layers';
 import type { TaskState } from '@/lib/task-state';
+import type { RagRetrieval } from '@/lib/rag-context';
 
 export type ChatRole = 'user' | 'assistant';
 
@@ -49,6 +50,8 @@ export interface ChatMessage {
   toolInputTokens?: number;
   toolOutputTokens?: number;
   mcpTools?: string[];
+  ragMode?: 'on' | 'off';
+  rag?: RagRetrieval;
   // Weather collection scheduled through MCP: the answer that started the job
   // keeps its id; the delivered result is marked with weatherJobResult.
   weatherJobId?: string;
@@ -68,6 +71,9 @@ export interface ChatRequest {
   messages: ApiChatMessage[];
   // Only regular agent replies opt in. Internal summarization/validation does not.
   useMcpTools?: boolean;
+  useRag?: boolean;
+  // Optional immutable snapshot for reproducible comparisons.
+  ragBuildId?: string;
   // Explicit profile text, distinct from automatically curated memory.
   profile?: string;
   // Structured shared memory is converted to system instructions by the API.
@@ -106,6 +112,7 @@ export interface FileUploadResponsePayload {
 }
 
 export type ChatStreamEvent =
+  | { type: 'rag'; retrieval: RagRetrieval }
   | { type: 'prepared'; prompt: string; promptOutputTokens?: number }
   | { type: 'delta'; content: string }
   | {

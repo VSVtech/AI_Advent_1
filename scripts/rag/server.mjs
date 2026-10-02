@@ -31,6 +31,24 @@ export function createRagHandler({
       if (url.pathname !== '/rag') return json({ error: 'Не найдено.' }, 404);
       const current = await readCurrent(dataDir);
       if (request.method === 'GET') {
+        if (url.searchParams.get('view') === 'answers') {
+          try {
+            return json(
+              await readJson(join(root, 'rag/answers-comparison.json')),
+            );
+          } catch (error) {
+            if (error.code === 'ENOENT')
+              return json(
+                {
+                  error:
+                    'Сравнение ещё не выполнено. Запустите pnpm rag:answers.',
+                },
+                404,
+              );
+            throw error;
+          }
+        }
+
         if (url.searchParams.get('view') === 'chunks') {
           if (!current) return json({ chunks: [], total: 0 });
           const strategy = strategyById(
@@ -133,7 +151,13 @@ export function createRagHandler({
             { error: 'Укажите стратегию и запрос от 1 до 2000 символов.' },
             400,
           );
-        const index = await loadIndex(dataDir, current.build_id, body.strategy);
+        const requestedBuild = body.build_id ?? current.build_id;
+        if (
+          typeof requestedBuild !== 'string' ||
+          !/^[a-zA-Z0-9-]{1,100}$/u.test(requestedBuild)
+        )
+          return json({ error: 'Некорректная версия индекса.' }, 400);
+        const index = await loadIndex(dataDir, requestedBuild, body.strategy);
         if (
           JSON.stringify(await provider.describe()) !==
           JSON.stringify(index.manifest.embedding)
@@ -141,7 +165,7 @@ export function createRagHandler({
           return json({ error: 'Модель изменилась. Перестройте индекс.' }, 409);
         const [vector] = await provider.embed([body.query.trim()], 'query');
         return json({
-          build_id: current.build_id,
+          build_id: requestedBuild,
           hits: searchIndex(index, vector),
         });
       }

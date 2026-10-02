@@ -1,5 +1,7 @@
 'use client';
 
+import { RagSources } from '@/components/rag-sources';
+
 import { tokenize, type ShjToken } from '@speed-highlight/core';
 import {
   ArrowUp,
@@ -452,6 +454,28 @@ export function AgentChat({
           </div>
         </header>
 
+        <div className="flex flex-wrap items-center gap-3 border-b border-white/5 px-4 py-2 text-xs text-white/55">
+          <label className="flex items-center gap-2">
+            Режим ответа
+            <select
+              aria-label="Режим RAG"
+              value={agent.config.useRag ? 'on' : 'off'}
+              disabled={isGenerating}
+              onChange={(event) =>
+                agent.setRagEnabled(event.target.value === 'on')
+              }
+              className="rounded-lg border border-white/15 bg-[#18201f] px-3 py-2 text-white/85"
+            >
+              <option value="off">Без RAG</option>
+              <option value="on">С RAG</option>
+            </select>
+          </label>
+          <span>
+            Для чистого сравнения используйте «База знаний»: история текущего
+            диалога сохраняется.
+          </span>
+        </div>
+
         {agent.config.contextStrategy === 'branching' ? (
           <section
             className="max-h-[min(30dvh,18rem)] shrink-0 overflow-y-auto border-b border-white/10 px-4 py-3 sm:px-6"
@@ -732,6 +756,13 @@ export function AgentChat({
                           </AttachmentGroup>
                         ) : null}
                       </div>
+                      {!isUser && message.rag ? (
+                        <RagSources retrieval={message.rag} />
+                      ) : !isUser && message.ragMode === 'off' ? (
+                        <p className="mt-2 text-[10px] text-white/35">
+                          Без RAG
+                        </p>
+                      ) : null}
                       {!isUser && message.status === 'stopped' ? (
                         <MessageFooter className="message-status">
                           Генерация остановлена

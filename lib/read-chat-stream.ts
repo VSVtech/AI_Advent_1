@@ -1,5 +1,6 @@
 import { MAX_MCP_TOOL_CALLS } from '@/lib/chat-constraints';
 import type { ChatStreamEvent } from '@/lib/chat-types';
+import { restoreRagRetrieval } from '@/lib/rag-context';
 
 function parseEventBlock(block: string): ChatStreamEvent | null {
   let eventName = 'message';
@@ -17,6 +18,13 @@ function parseEventBlock(block: string): ChatStreamEvent | null {
   if (dataLines.length === 0) return null;
 
   const data = JSON.parse(dataLines.join('\n')) as Record<string, unknown>;
+
+  if (eventName === 'rag') {
+    const retrieval = restoreRagRetrieval(data.retrieval);
+    if (!retrieval)
+      throw new Error('Некорректные источники RAG в ответе сервера.');
+    return { type: 'rag', retrieval };
+  }
 
   if (eventName === 'prepared' && typeof data.prompt === 'string') {
     const promptOutputTokens = data.promptOutputTokens;

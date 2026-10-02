@@ -45,6 +45,7 @@ import {
   normalizeProfileText,
 } from '@/lib/user-profile';
 import { restoreTaskState } from '@/lib/task-state';
+import { restoreRagRetrieval } from '@/lib/rag-context';
 
 export const AGENT_SESSIONS_STORAGE_KEY = 'deepseek-chat:agent-sessions:v2';
 const PREVIOUS_AGENT_SESSIONS_STORAGE_KEY = 'deepseek-chat:agent-sessions:v1';
@@ -148,6 +149,8 @@ function restoreAttachment(value: unknown): ChatAttachment | null {
 
 function restoreConfig(value: unknown): AgentConfig | null {
   if (!isRecord(value)) return null;
+  if (value.useRag !== undefined && typeof value.useRag !== 'boolean')
+    return null;
 
   // Sessions written before the artificial limit was introduced use the
   // model's full context window and remain loadable without a data migration.
@@ -195,6 +198,7 @@ function restoreConfig(value: unknown): AgentConfig | null {
 
   return {
     profileMode,
+    useRag: value.useRag === true,
     customProfile,
     model: value.model,
     temperature: value.temperature,
@@ -285,6 +289,8 @@ function restoreMessage(value: unknown): ChatMessage | null {
     )
       ? (value.mcpTools as string[])
       : undefined;
+  const rag =
+    value.role === 'assistant' ? restoreRagRetrieval(value.rag) : null;
   // Without the job id a reopened chat could not receive the weather result.
   const weatherJobId =
     value.role === 'assistant' &&
@@ -339,6 +345,11 @@ function restoreMessage(value: unknown): ChatMessage | null {
     ...(toolInputTokens === undefined ? {} : { toolInputTokens }),
     ...(toolOutputTokens === undefined ? {} : { toolOutputTokens }),
     ...(mcpTools === undefined ? {} : { mcpTools }),
+    ...(rag ? { rag } : {}),
+    ...(value.role === 'assistant' &&
+    (value.ragMode === 'on' || value.ragMode === 'off')
+      ? { ragMode: value.ragMode }
+      : {}),
     ...(weatherJobId === undefined ? {} : { weatherJobId }),
     ...(weatherJobId !== undefined && value.weatherJobResult === true
       ? { weatherJobResult: true }

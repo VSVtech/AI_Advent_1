@@ -1,4 +1,5 @@
 'use client';
+/* oxlint-disable next/no-html-link-for-pages -- Vinext uses ordinary links for standalone pages. */
 
 import { BookOpen, RefreshCw, Search } from 'lucide-react';
 import { useEffect, useState, type SyntheticEvent } from 'react';
@@ -181,9 +182,8 @@ export function KnowledgeBaseView() {
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
         <div className="space-y-3">
           <p className="max-w-3xl text-sm leading-6 text-white/60">
-            Документация и исходники проекта. Просматривайте чанки и проверяйте,
-            какие фрагменты находит каждая стратегия. Подключение найденного
-            контекста к ответам агента — следующий этап.
+            Документация и исходники проекта. Просматривайте чанки, проверяйте
+            поиск и сравнивайте ответы модели с найденным контекстом и без него.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button disabled={disabled} onClick={() => void run('index')}>
@@ -245,6 +245,14 @@ export function KnowledgeBaseView() {
             </p>
           ) : null}
         </div>
+
+        <a
+          href="/rag-comparison"
+          className="block rounded-xl border border-emerald-300/20 bg-emerald-300/[0.035] p-4 text-sm text-emerald-200 hover:bg-emerald-300/10"
+        >
+          День 22 · Сравнение RAG — 10 вопросов, ответы с RAG и без RAG в
+          таблице →
+        </a>
 
         <details className="rounded-xl border border-white/10 p-4">
           <summary className="cursor-pointer text-sm font-medium text-white/80">

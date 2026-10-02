@@ -6,7 +6,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 2043,
         "end_offset": 2216,
         "quote": "- Сессии сохраняются в `localStorage` в версионированном формате. Повреждённые\n  записи игнорируются, а незавершённый поток после перезапуска помечается как\n  остановленный."
@@ -20,7 +20,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 1563,
         "end_offset": 1825,
         "quote": "- Состояние агента наружу отдаётся через простой паттерн\n  `subscribe`/`getSnapshot` (без хранения его в React state), а\n  `hooks/use-agent.ts` подписывает компонент на изменения через\n  `useSyncExternalStore`, чтобы чат перерисовывался при каждой дельте ответа."
@@ -34,7 +34,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 2572,
         "end_offset": 2849,
         "quote": "- `Agent.mergeBranches(firstId, secondId)` суммаризирует каждую выбранную ветку\n  отдельными запросами, затем объединяет две сводки ещё одним запросом.\n  Итоговое summary сохраняется в новой ветке и подставляется в её будущие\n  запросы; исходные ветки и их истории не меняются."
@@ -48,7 +48,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 6762,
         "end_offset": 6905,
         "quote": "В режимах без\nсжатия, Sticky Facts и\nBranching сессионное сообщение содержит и краткосрочные факты; при Sliding\nWindow — только рабочие записи."
@@ -62,7 +62,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 7657,
         "end_offset": 7882,
         "quote": "При создании агента галочка «Использовать стандартный профиль» включена по\nумолчанию. Такой агент берёт актуальный текст General Profile при **каждом**\nзапросе, поэтому изменения страницы действуют и на уже созданных агентов."
@@ -76,7 +76,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 8285,
         "end_offset": 8415,
         "quote": "При конфликте агент\nориентируется на последнее явное сообщение пользователя, затем на память\nтекущего контекста, затем на профиль."
@@ -90,7 +90,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 14363,
         "end_offset": 14590,
         "quote": "Для задачи с\nинвариантами сервер сначала получает полный ответ, затем отдельным запросом к\nLLM проверяет его по списку. Нарушающий ответ не показывается: сервер до двух\nраз повторяет генерацию с указанием конкретного нарушения."
@@ -104,7 +104,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 24826,
         "end_offset": 24967,
         "quote": "- **Заметки** (`scripts/mcp-servers/notes.mjs`, порт 18802) — `save_note`,\n  `list_notes`, `read_note`: Markdown-файлы в `.local-data/notes`."
@@ -118,7 +118,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 25293,
         "end_offset": 25394,
         "quote": "Если одно имя инструмента есть на нескольких серверах, оно\nполучает префикс сервера (`ai-vps__ping`)."
@@ -132,7 +132,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 25448,
         "end_offset": 25514,
         "quote": "За один ответ агент делает до 6 раундов и 12 вызовов\nинструментов."
@@ -146,7 +146,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 22323,
         "end_offset": 22425,
         "quote": "Капсула работает\nкруглосуточно, поэтому сбор не зависит от того, открыт ли чат и включён ли\nкомпьютер."
@@ -160,7 +160,7 @@
     "evidence": [
       {
         "source": "README.md",
-        "content_hash": "b933868704ac2f7764112a44629c5db6adb2fc5eb6b1b9c479564275f9a15fac",
+        "content_hash": "9909362ee26c500d455118e9ebf1e1f3f5468f30ff2e3a72fb56d56b8dbc21a9",
         "start_offset": 23756,
         "end_offset": 23895,
         "quote": "связывает два MCP-инструмента в цепочку: сначала `find_concert` получает\nгород, затем `get_weather` запрашивает погоду ровно в этом городе."
@@ -188,9 +188,9 @@
     "evidence": [
       {
         "source": "lib/agent.ts",
-        "content_hash": "e50f0a37e4ad0acdcc045dad07f671160c43112c1ed5a327969a3b18a7cdb12a",
-        "start_offset": 53637,
-        "end_offset": 53692,
+        "content_hash": "4b85d301a1aa6402f53ebc4c58a6fb52082d0bc70ef204beb24f86e0f09174e2",
+        "start_offset": 54318,
+        "end_offset": 54373,
         "quote": "  stop(): void {\n    this.abortController?.abort();\n  }"
       }
     ]
@@ -202,9 +202,9 @@
     "evidence": [
       {
         "source": "lib/agent.ts",
-        "content_hash": "e50f0a37e4ad0acdcc045dad07f671160c43112c1ed5a327969a3b18a7cdb12a",
-        "start_offset": 54296,
-        "end_offset": 54420,
+        "content_hash": "4b85d301a1aa6402f53ebc4c58a6fb52082d0bc70ef204beb24f86e0f09174e2",
+        "start_offset": 54977,
+        "end_offset": 55101,
         "quote": "  dispose(): void {\n    this.abortController?.abort();\n    this.unsubscribeLongTermMemory();\n    this.listeners.clear();\n  }"
       }
     ]

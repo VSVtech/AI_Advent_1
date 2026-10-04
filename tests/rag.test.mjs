@@ -245,6 +245,23 @@ describe('RAG evaluation and local API', () => {
     const options = await fixture();
     await buildIndices(options);
     const handler = createRagHandler(options);
+    const search = (top_k) =>
+      handler(
+        new Request('http://127.0.0.1/rag', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'search',
+            strategy: 'overlap',
+            query: 'memory',
+            top_k,
+          }),
+        }),
+      );
+    expect((await (await search(1)).json()).hits).toHaveLength(1);
+    expect((await search(51)).status).toBe(400);
+    expect((await search(1.5)).status).toBe(400);
+    expect((await search(-1)).status).toBe(400);
     const response = await handler(
       new Request('http://127.0.0.1/rag?view=chunks&strategy=structure'),
     );

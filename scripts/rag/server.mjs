@@ -8,6 +8,10 @@ import { buildIndices } from './pipeline.mjs';
 import { evaluate } from './evaluate.mjs';
 import { loadTokenizer } from './tokenizer.mjs';
 import { loadIndex, readCurrent, readJson } from './storage.mjs';
+import { LocalEvidenceVerifier } from './evidence.mjs';
+import { LocalRewriter, LocalReranker } from './models.mjs';
+import { retrieveCandidates } from './retrieval.mjs';
+import { isRagSearchOptions } from './relevance.mjs';
 
 const json = (body, status = 200) =>
   Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -16,6 +20,9 @@ export function createRagHandler({
   root = ROOT,
   dataDir = DATA_DIR,
   provider = new OllamaEmbeddings(),
+  rewriter = new LocalRewriter(),
+  reranker = new LocalReranker(),
+  verifier = new LocalEvidenceVerifier(),
 } = {}) {
   let job = { status: 'idle', action: null, progress: null, error: null };
   const onProgress = (progress) => {
@@ -31,17 +38,28 @@ export function createRagHandler({
       if (url.pathname !== '/rag') return json({ error: 'Не найдено.' }, 404);
       const current = await readCurrent(dataDir);
       if (request.method === 'GET') {
-        if (url.searchParams.get('view') === 'answers') {
+        if (
+          ['answers', 'enhanced-answers'].includes(url.searchParams.get('view'))
+        ) {
+          const enhanced = url.searchParams.get('view') === 'enhanced-answers';
           try {
             return json(
-              await readJson(join(root, 'rag/answers-comparison.json')),
+              await readJson(
+                join(
+                  root,
+                  enhanced
+                    ? 'rag/rerank-answers-comparison.json'
+                    : 'rag/answers-comparison.json',
+                ),
+              ),
             );
           } catch (error) {
             if (error.code === 'ENOENT')
               return json(
                 {
-                  error:
-                    'Сравнение ещё не выполнено. Запустите pnpm rag:answers.',
+                  error: enhanced
+                    ? 'Сравнение ещё не выполнено. Запустите pnpm rag:enhanced-answers.'
+                    : 'Сравнение ещё не выполнено. Запустите pnpm rag:answers.',
                 },
                 404,
               );
@@ -139,7 +157,7 @@ export function createRagHandler({
           });
         return json({ job }, 202);
       }
-      if (body.action === 'search') {
+      if (body.action === 'search' || body.action === 'retrieve') {
         if (!current) return json({ error: 'Сначала постройте индекс.' }, 409);
         if (
           typeof body.query !== 'string' ||
@@ -149,6 +167,14 @@ export function createRagHandler({
         )
           return json(
             { error: 'Укажите стратегию и запрос от 1 до 2000 символов.' },
+            400,
+          );
+        if (body.action === 'retrieve' && !isRagSearchOptions(body.options))
+          return json({ error: 'Некорректные настройки поиска.' }, 400);
+        const topK = body.top_k ?? 5;
+        if (!Number.isInteger(topK) || topK < 1 || topK > 50)
+          return json(
+            { error: 'top_k должен быть целым числом от 1 до 50.' },
             400,
           );
         const requestedBuild = body.build_id ?? current.build_id;
@@ -163,10 +189,23 @@ export function createRagHandler({
           JSON.stringify(index.manifest.embedding)
         )
           return json({ error: 'Модель изменилась. Перестройте индекс.' }, 409);
+        if (body.action === 'retrieve') {
+          const { hits, processing } = await retrieveCandidates({
+            index,
+            query: body.query.trim(),
+            options: body.options,
+            provider,
+            rewriter,
+            reranker,
+            verifier,
+            signal: request.signal,
+          });
+          return json({ build_id: requestedBuild, hits, processing });
+        }
         const [vector] = await provider.embed([body.query.trim()], 'query');
         return json({
           build_id: requestedBuild,
-          hits: searchIndex(index, vector),
+          hits: searchIndex(index, vector, topK),
         });
       }
       return json({ error: 'Неизвестная операция.' }, 400);
@@ -207,10 +246,15 @@ export function startRagServer(port = Number(process.env.RAG_PORT ?? 18803)) {
         }
         buffers.push(buffer);
       }
+      const controller = new AbortController();
+      outgoing.on('close', () => {
+        if (!outgoing.writableEnded) controller.abort();
+      });
       const request = new Request(`http://127.0.0.1:${port}${incoming.url}`, {
         method: incoming.method,
         headers: incoming.headers,
         body: incoming.method === 'POST' ? Buffer.concat(buffers) : undefined,
+        signal: controller.signal,
       });
       const response = await handler(request);
       outgoing.writeHead(response.status, Object.fromEntries(response.headers));

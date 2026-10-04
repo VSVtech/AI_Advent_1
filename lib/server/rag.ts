@@ -7,7 +7,13 @@ import {
   restoreRagRetrieval,
   type RagRetrieval,
   type RagSource,
+  type RagSearchOptions,
 } from '@/lib/rag-context';
+import {
+  filterCandidates,
+  isRagSearchOptions,
+  rewriteQuery,
+} from '@/scripts/rag/relevance.mjs';
 import type { ApiChatMessage } from '@/lib/chat-types';
 import { encodeEvent } from '@/lib/server/deepseek';
 
@@ -25,7 +31,14 @@ export async function retrieveRagContext(
   messages: ApiChatMessage[],
   signal: AbortSignal,
   buildId?: string,
+  options?: RagSearchOptions,
 ): Promise<RagRetrieval> {
+  if (options !== undefined && !isRagSearchOptions(options))
+    throw new RagError(
+      'invalid_rag_options',
+      'Некорректные настройки поиска.',
+      400,
+    );
   const query = ragQuery(messages);
   if (!query || query.length > MAX_RAG_QUERY_CHARS)
     throw new RagError(
@@ -33,6 +46,12 @@ export async function retrieveRagContext(
       `Для RAG нужен текстовый вопрос до ${MAX_RAG_QUERY_CHARS} символов.`,
       400,
     );
+  const advanced =
+    options?.rerank !== undefined ||
+    options?.verifyEvidence !== undefined ||
+    options?.deduplicate !== undefined;
+  const searchQuery =
+    !advanced && options?.rewrite ? rewriteQuery(query) : query;
   let response: Response;
   try {
     response = await fetch(
@@ -41,9 +60,11 @@ export async function retrieveRagContext(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'search',
+          action: advanced ? 'retrieve' : 'search',
           strategy: RAG_STRATEGY,
-          query,
+          query: searchQuery,
+          ...(options ? { top_k: options.topKBefore } : {}),
+          ...(advanced ? { options } : {}),
           ...(buildId ? { build_id: buildId } : {}),
         }),
         signal: AbortSignal.any([signal, AbortSignal.timeout(190_000)]),
@@ -59,9 +80,9 @@ export async function retrieveRagContext(
   if (!response.ok)
     throw new RagError(
       'rag_unavailable',
-      'Поиск по базе знаний не выполнен. Проверьте локальный сервис, Ollama и наличие индекса. Ответ без RAG автоматически не подставляется.',
+      'Поиск по базе знаний не выполнен. Проверьте локальный сервис, Ollama и наличие индекса; для реранкера и проверки цитат выполните pnpm rag:models (нужны Qwen2.5:1.5b и Qwen2.5:7b). Ответ без RAG автоматически не подставляется.',
     );
-  let payload: { build_id?: unknown; hits?: unknown };
+  let payload: { build_id?: unknown; hits?: unknown; processing?: unknown };
   try {
     payload = (await response.json()) as typeof payload;
   } catch {
@@ -79,8 +100,29 @@ export async function retrieveRagContext(
       'invalid_rag_response',
       'Не удалось проверить версию индекса и источники.',
     );
+  // Validate candidates before filtering so malformed or NaN scores cannot
+  // silently disappear and make an invalid index look like an empty result.
+  for (const hit of payload.hits) {
+    if (
+      !restoreRagRetrieval({
+        build_id: payload.build_id,
+        strategy: RAG_STRATEGY,
+        query,
+        sources: [{ ...hit, id: 'S1' }],
+      })
+    )
+      throw new RagError(
+        'invalid_rag_response',
+        'Кандидаты из индекса не прошли проверку.',
+      );
+  }
+  const selected =
+    options && !advanced
+      ? filterCandidates(payload.hits as RagSource[], options)
+      : null;
   const sources: RagSource[] = [];
-  for (const hit of payload.hits.slice(0, RAG_TOP_K)) {
+  for (const hit of selected?.hits ??
+    payload.hits.slice(0, advanced ? options!.topKAfter : RAG_TOP_K)) {
     const candidate = {
       id: `S${sources.length + 1}`,
       chunk_id: hit?.chunk_id,
@@ -91,12 +133,23 @@ export async function retrieveRagContext(
       end_line: hit?.end_line,
       score: hit?.score,
       text: hit?.text,
+      ...(hit.evidence !== undefined ? { evidence: hit.evidence } : {}),
+      ...(hit.rerank_score !== undefined
+        ? { rerank_score: hit.rerank_score }
+        : {}),
+      ...(hit.retrieval_rank !== undefined
+        ? { retrieval_rank: hit.retrieval_rank }
+        : {}),
     };
     if (JSON.stringify([...sources, candidate]).length > MAX_RAG_CONTEXT_CHARS)
       continue;
     sources.push(candidate);
   }
-  if (!sources.length)
+  if (
+    !advanced &&
+    !sources.length &&
+    !(options?.filter && selected?.passed === 0)
+  )
     throw new RagError(
       'rag_no_sources',
       'В индексе нет фрагментов, которые можно передать модели. Перестройте индекс или выберите «Без RAG».',
@@ -107,8 +160,32 @@ export async function retrieveRagContext(
     strategy: RAG_STRATEGY,
     query,
     sources,
+    ...(advanced ? { processing: payload.processing } : {}),
+    ...(options && selected
+      ? {
+          processing: {
+            options,
+            search_query: searchQuery,
+            candidates: selected.candidates,
+            passed: selected.passed,
+          },
+        }
+      : {}),
   });
-  if (!retrieval)
+  if (
+    !retrieval ||
+    (advanced &&
+      (!retrieval.processing ||
+        Object.entries(options!).some(
+          ([key, value]) =>
+            (
+              retrieval.processing!.options as unknown as Record<
+                string,
+                unknown
+              >
+            )[key] !== value,
+        )))
+  )
     throw new RagError(
       'invalid_rag_response',
       'Источники из индекса не прошли проверку.',

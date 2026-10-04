@@ -1,4 +1,6 @@
 'use client';
+import { DEFAULT_RAG_SEARCH } from '@/scripts/rag/relevance.mjs';
+import { RagSearchSettings } from '@/components/rag-search-settings';
 
 import { RagSources } from '@/components/rag-sources';
 
@@ -459,15 +461,27 @@ export function AgentChat({
             Режим ответа
             <select
               aria-label="Режим RAG"
-              value={agent.config.useRag ? 'on' : 'off'}
-              disabled={isGenerating}
-              onChange={(event) =>
-                agent.setRagEnabled(event.target.value === 'on')
+              value={
+                agent.config.useRag
+                  ? agent.config.ragSearch
+                    ? 'enhanced'
+                    : 'on'
+                  : 'off'
               }
+              disabled={isGenerating}
+              onChange={(event) => {
+                agent.setRagEnabled(event.target.value !== 'off');
+                agent.setRagSearch(
+                  event.target.value === 'enhanced'
+                    ? { ...DEFAULT_RAG_SEARCH }
+                    : undefined,
+                );
+              }}
               className="rounded-lg border border-white/15 bg-[#18201f] px-3 py-2 text-white/85"
             >
               <option value="off">Без RAG</option>
               <option value="on">С RAG</option>
+              <option value="enhanced">RAG + обработка</option>
             </select>
           </label>
           <span>
@@ -475,6 +489,16 @@ export function AgentChat({
             диалога сохраняется.
           </span>
         </div>
+
+        {agent.config.useRag && agent.config.ragSearch ? (
+          <div className="px-4 py-2">
+            <RagSearchSettings
+              value={agent.config.ragSearch}
+              disabled={isGenerating}
+              onChange={(options) => agent.setRagSearch(options)}
+            />
+          </div>
+        ) : null}
 
         {agent.config.contextStrategy === 'branching' ? (
           <section

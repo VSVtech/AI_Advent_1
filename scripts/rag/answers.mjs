@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_RAG_SEARCH } from './relevance.mjs';
 import { ROOT, DATA_DIR } from './config.mjs';
 import { hash } from './documents.mjs';
 import { atomicWrite, readCurrent, readJson } from './storage.mjs';
@@ -55,10 +56,32 @@ export async function compareAnswers({
   apiUrl = process.env.RAG_CHAT_URL ?? 'http://localhost:3000/api/chat',
   fetcher = fetch,
   onProgress = (_message) => {},
+  enhanced = false,
 } = {}) {
   const corpus = await readCurrent(dataDir);
   if (!corpus) throw new Error('Сначала постройте индекс.');
-  const control = await readJson(join(root, 'rag/answer-questions.json'));
+  let control = await readJson(join(root, 'rag/answer-questions.json'));
+  let options;
+  if (enhanced) {
+    const dataset = await readJson(join(root, 'rag/extended-questions.json'));
+    const calibration = await readJson(
+      join(root, 'rag/rerank-calibration.json'),
+    );
+    if (
+      calibration.build_id !== corpus.build_id ||
+      calibration.questions_hash !== hash(JSON.stringify(dataset))
+    )
+      throw new Error('Сначала выполните актуальную калибровку dev.');
+    options = {
+      ...calibration.options,
+      verifyEvidence: DEFAULT_RAG_SEARCH.verifyEvidence,
+      deduplicate: DEFAULT_RAG_SEARCH.deduplicate,
+    };
+    control = {
+      ...control,
+      questions: dataset.questions.filter((q) => q.split === 'test'),
+    };
+  }
   if (control.questions.length !== 10)
     throw new Error('Для дня 22 требуется ровно 10 вопросов.');
   const runId = randomUUID();
@@ -89,16 +112,34 @@ export async function compareAnswers({
         body: JSON.stringify({
           ...settings,
           messages: [{ role: 'user', content: question.question }],
-          useRag: mode === 'rag',
-          ...(mode === 'rag' ? { ragBuildId: corpus.build_id } : {}),
+          useRag: enhanced || mode === 'rag',
+          ...(enhanced || mode === 'rag'
+            ? { ragBuildId: corpus.build_id }
+            : {}),
+          ...(enhanced && mode === 'rag' ? { ragSearch: options } : {}),
         }),
         signal: AbortSignal.timeout(240_000),
       });
       const output = await collectAnswer(response);
-      if (mode === 'rag' && output.rag?.build_id !== corpus.build_id)
+      if (
+        (enhanced || mode === 'rag') &&
+        output.rag?.build_id !== corpus.build_id
+      )
         throw new Error('Ответ не подтверждает запрошенный снимок RAG.');
-      if (mode === 'baseline' && output.rag)
+      if (!enhanced && mode === 'baseline' && output.rag)
         throw new Error('Контрольный ответ неожиданно использовал RAG.');
+      if (enhanced && mode === 'rag') {
+        const expected = options;
+        if (
+          !output.rag?.processing ||
+          Object.entries(expected).some(
+            ([key, value]) => output.rag.processing.options[key] !== value,
+          )
+        )
+          throw new Error('Ответ не подтвердил настройки поиска.');
+      }
+      if (!(enhanced && mode === 'rag') && output.rag?.processing)
+        throw new Error('Вместо RAG дня 22 сервер применил обработку.');
       outputs[mode] = {
         ...output,
         elapsed_ms: Math.round(performance.now() - start),
@@ -113,6 +154,7 @@ export async function compareAnswers({
   }
   const report = {
     schema_version: 1,
+    ...(enhanced ? { suite: 'test', options } : {}),
     run_id: runId,
     created_at: new Date().toISOString(),
     build_id: corpus.build_id,
@@ -126,7 +168,10 @@ export async function compareAnswers({
     JSON.stringify(report, null, 2),
   );
   await atomicWrite(
-    join(dataDir, 'answers-current.json'),
+    join(
+      dataDir,
+      enhanced ? 'enhanced-answers-current.json' : 'answers-current.json',
+    ),
     JSON.stringify(report, null, 2),
   );
   return report;
@@ -136,6 +181,8 @@ export function attachReview(report, review) {
   if (!review || review.run_id !== report.run_id) return report;
   return {
     ...report,
+    review_method:
+      typeof review.reviewer === 'string' ? review.reviewer : 'Ручная оценка',
     rows: report.rows.map((row) => {
       const assessed = review.rows.find((item) => item.id === row.id);
       if (!assessed) return row;
@@ -157,17 +204,34 @@ export function attachReview(report, review) {
 }
 
 export function renderAnswers(report) {
+  const historicalBaseline = report.rows.some(
+    (row) => row.baseline.rag?.processing,
+  );
+  const baselineLabel = report.options
+    ? historicalBaseline
+      ? 'RAG без обработки (старый пайплайн)'
+      : 'RAG дня 22'
+    : 'Без RAG';
+  const ragLabel = report.options ? 'RAG с обработкой' : 'С RAG';
   const lines = [
-    '# День 22 — ответы без RAG и с RAG',
+    report.options
+      ? '# День 23 — качество ответов до и после обработки'
+      : '# День 22 — ответы без RAG и с RAG',
     '',
     `Дата: ${report.created_at}. Снимок индекса: ${report.build_id}.`,
-    `Модель: ${report.settings.model}; температура: ${report.settings.temperature}; top-k=5; стратегия overlap.`,
+    `Модель: ${report.settings.model}; температура: ${report.settings.temperature}; ${historicalBaseline ? `top-k=${report.options?.topKAfter ?? 5}` : `top-k RAG дня 22=5${report.options ? `; top-k с обработкой=${report.options.topKAfter}` : ''}`}; стратегия overlap.`,
+    ...(report.review_method ? [`Кто оценивал: ${report.review_method}.`] : []),
     '',
-    'Каждый ответ получен отдельным запросом без истории, профиля, памяти и MCP. Общие инструкции и лимиты одинаковые. Отличие RAG — найденные фрагменты и правила работы с ними. Эталоны никогда не передаются отвечающей модели. Вопросы зафиксированы до прогона.',
+    ...(report.options
+      ? [
+          `Обработка: ${JSON.stringify(report.options)}. Оба режима используют RAG; слева ${historicalBaseline ? 'исторический пайплайн с отключённой обработкой' : 'поиск дня 22 (top-5)'}.`,
+        ]
+      : []),
+    'Каждый ответ получен отдельным запросом без истории, профиля, памяти и MCP. Общие инструкции и лимиты одинаковые. Для RAG передаются найденные фрагменты и правила работы с ними. Эталоны никогда не передаются отвечающей модели. Вопросы зафиксированы до прогона.',
     '',
     'Ручная оценка: по одному баллу за каждый ожидаемый факт; отдельно отмечены неподтверждённые утверждения. Оценка привязана к хешу конкретного ответа. Для вопроса без ответа в корпусе оценивается корректное признание недостатка данных. Ссылки проверяются по списку переданных фрагментов; наличие корректного ID само по себе не доказывает, что источник подтверждает утверждение.',
     '',
-    '| Вопрос | Без RAG: факты | С RAG: факты | Выдуманные факты: без / с |',
+    `| Вопрос | ${baselineLabel}: факты | ${ragLabel}: факты | Выдуманные факты: без / с |`,
     '| --- | ---: | ---: | --- |',
   ];
   for (const row of report.rows) {
@@ -189,7 +253,31 @@ export function renderAnswers(report) {
     const assessed = report.rows.filter((row) => row.review?.[mode]);
     lines.push(
       '',
-      `${mode === 'rag' ? 'С RAG' : 'Без RAG'}: ${assessed.reduce((sum, row) => sum + row.review[mode].facts.filter(Boolean).length, 0)}/${assessed.reduce((sum, row) => sum + row.expected.length, 0)} ожидаемых фактов по ${assessed.length} оценённым ответам.`,
+      `${mode === 'rag' ? ragLabel : baselineLabel}: ${assessed.reduce((sum, row) => sum + row.review[mode].facts.filter(Boolean).length, 0)}/${assessed.reduce((sum, row) => sum + row.expected.length, 0)} ожидаемых фактов по ${assessed.length} оценённым ответам.`,
+    );
+  }
+  if (report.options) {
+    const totals = (mode) => ({
+      input: report.rows.reduce(
+        (sum, row) => sum + (row[mode].usage.inputTokens ?? 0),
+        0,
+      ),
+      chunks: report.rows.reduce(
+        (sum, row) => sum + row[mode].rag.sources.length,
+        0,
+      ),
+      invalid: report.rows.reduce(
+        (sum, row) => sum + row[mode].invalid_citations.length,
+        0,
+      ),
+    });
+    const before = totals('baseline'),
+      after = totals('rag');
+    lines.push(
+      '',
+      `Входные токены: ${before.input} → ${after.input}. Переданные чанки: ${before.chunks} → ${after.chunks}. Неизвестные ID цитат: ${before.invalid} / ${after.invalid}.`,
+      '',
+      'Меньше входных токенов или источников само по себе не означает лучший ответ. Сравнивайте полноту фактов, неподтверждённые утверждения и причины отказов выше; вывод относится только к этому прогону.',
     );
   }
   lines.push(
@@ -210,7 +298,7 @@ export function renderAnswers(report) {
     for (const mode of ['baseline', 'rag']) {
       const output = row[mode];
       lines.push(
-        `### ${mode === 'rag' ? 'С RAG' : 'Без RAG'}`,
+        `### ${mode === 'rag' ? ragLabel : baselineLabel}`,
         '',
         output.answer,
         '',
@@ -236,26 +324,38 @@ export function renderAnswers(report) {
 }
 
 async function main() {
+  const enhanced = process.argv.includes('--enhanced');
+  const prefix = enhanced ? 'rerank-answers' : 'answers';
   const report = process.argv.includes('--render')
-    ? await readJson(join(DATA_DIR, 'answers-current.json'))
-    : await compareAnswers({ onProgress: console.log });
+    ? await readJson(
+        join(
+          DATA_DIR,
+          enhanced ? 'enhanced-answers-current.json' : 'answers-current.json',
+        ),
+      )
+    : await compareAnswers({ enhanced, onProgress: console.log });
   let review = null;
   try {
-    review = await readJson(join(ROOT, 'rag/answer-review.json'));
+    review = await readJson(
+      join(
+        ROOT,
+        enhanced ? 'rag/rerank-answer-review.json' : 'rag/answer-review.json',
+      ),
+    );
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
   const reviewed = attachReview(report, review);
   await atomicWrite(
-    join(ROOT, 'rag/answers-comparison.json'),
+    join(ROOT, `rag/${prefix}-comparison.json`),
     JSON.stringify(reviewed, null, 2),
   );
   await atomicWrite(
-    join(ROOT, 'rag/answers-comparison.md'),
+    join(ROOT, `rag/${prefix}-comparison.md`),
     renderAnswers(reviewed),
   );
   console.log(
-    'Сохранены rag/answers-comparison.json и rag/answers-comparison.md',
+    `Сохранены rag/${prefix}-comparison.json и rag/${prefix}-comparison.md`,
   );
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)

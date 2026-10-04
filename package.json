@@ -26,11 +26,18 @@
     "rag:compare": "node scripts/rag/cli.mjs compare",
     "rag:search": "node scripts/rag/cli.mjs search",
     "rag:server": "node scripts/rag/server.mjs",
-    "rag:answers": "node scripts/rag/answers.mjs"
+    "rag:answers": "node scripts/rag/answers.mjs",
+    "rag:relevance": "node scripts/rag/evaluate-relevance.mjs",
+    "rag:models": "node scripts/rag/setup-models.mjs",
+    "rag:calibrate": "node scripts/rag/benchmark.mjs calibrate",
+    "rag:benchmark": "node scripts/rag/benchmark.mjs evaluate",
+    "rag:evidence": "node scripts/rag/evaluate-evidence.mjs",
+    "rag:enhanced-answers": "node scripts/rag/answers.mjs --enhanced"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
     "@huggingface/tokenizers": "^0.2.0",
+    "@huggingface/transformers": "3.8.1",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",

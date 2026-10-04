@@ -1,4 +1,8 @@
 import {
+  isRagSearchOptions,
+  type RagSearchOptions,
+} from '@/scripts/rag/relevance.mjs';
+import {
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   DEFAULT_MODEL,
   DEFAULT_TARGET_OUTPUT_TOKENS,
@@ -68,6 +72,7 @@ import {
 
 export interface AgentConfig {
   useRag?: boolean;
+  ragSearch?: RagSearchOptions;
   profileMode: AgentProfileMode;
   customProfile: string;
   model: string;
@@ -170,7 +175,27 @@ function cloneMessage(message: ChatMessage): ChatMessage {
       ? {
           rag: {
             ...message.rag,
-            sources: message.rag.sources.map((source) => ({ ...source })),
+            sources: message.rag.sources.map((source) => ({
+              ...source,
+              ...(source.evidence
+                ? { evidence: source.evidence.map((e) => ({ ...e })) }
+                : {}),
+            })),
+            ...(message.rag.processing
+              ? {
+                  processing: {
+                    ...message.rag.processing,
+                    options: { ...message.rag.processing.options },
+                    ...(message.rag.processing.search_queries
+                      ? {
+                          search_queries: [
+                            ...message.rag.processing.search_queries,
+                          ],
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
           },
         }
       : {}),
@@ -537,6 +562,17 @@ export class Agent {
   setRagEnabled(enabled: boolean): boolean {
     if (this.isGenerating) return false;
     this.config.useRag = enabled;
+    this.notify();
+    return true;
+  }
+
+  setRagSearch(options?: RagSearchOptions): boolean {
+    if (
+      this.isGenerating ||
+      (options !== undefined && !isRagSearchOptions(options))
+    )
+      return false;
+    this.config.ragSearch = options ? { ...options } : undefined;
     this.notify();
     return true;
   }
@@ -1505,7 +1541,14 @@ export class Agent {
           temperature: this.config.temperature,
           model: this.config.model,
           useMcpTools: true,
-          ...(this.config.useRag ? { useRag: true } : {}),
+          ...(this.config.useRag
+            ? {
+                useRag: true,
+                ...(this.config.ragSearch
+                  ? { ragSearch: { ...this.config.ragSearch } }
+                  : {}),
+              }
+            : {}),
           useSystemPrompt: this.config.useSystemPrompt,
           useSelectorSystemPrompt: this.config.useSelectorSystemPrompt,
           ...(this.config.useSystemPrompt &&

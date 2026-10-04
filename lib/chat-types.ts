@@ -1,6 +1,6 @@
 import type { LongTermMemoryFact } from '@/lib/memory-layers';
 import type { TaskState } from '@/lib/task-state';
-import type { RagRetrieval } from '@/lib/rag-context';
+import type { RagRetrieval, RagSearchOptions } from '@/lib/rag-context';
 
 export type ChatRole = 'user' | 'assistant';
 
@@ -72,6 +72,7 @@ export interface ChatRequest {
   // Only regular agent replies opt in. Internal summarization/validation does not.
   useMcpTools?: boolean;
   useRag?: boolean;
+  ragSearch?: RagSearchOptions;
   // Optional immutable snapshot for reproducible comparisons.
   ragBuildId?: string;
   // Explicit profile text, distinct from automatically curated memory.

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "n01",
+    "question": "Какой точный адрес и порт PostgreSQL используются в продакшене?",
+    "answerable": false,
+    "evidence": []
+  },
+  {
+    "id": "n02",
+    "question": "Какое имя Kubernetes-кластера используется для развёртывания проекта?",
+    "answerable": false,
+    "evidence": []
+  },
+  {
+    "id": "n03",
+    "question": "Какова утверждённая стоимость подписки на проект в евро в месяц?",
+    "answerable": false,
+    "evidence": []
+  },
+  {
+    "id": "n04",
+    "question": "Как приготовить дрожжевое тесто для пиццы?",
+    "answerable": false,
+    "evidence": []
+  },
+  {
+    "id": "n05",
+    "question": "Какая температура на поверхности Нептуна?",
+    "answerable": false,
+    "evidence": []
+  }
+]

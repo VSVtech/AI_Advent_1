@@ -4,15 +4,15 @@ import { RagAnswerComparison } from '@/components/rag-answer-comparison';
 
 export default function RagComparisonPage() {
   return (
-    <main className="chat-shell">
-      <div className="app-frame flex flex-col">
+    <main className="rag-comparison-page flex min-h-dvh justify-center p-0 sm:p-4">
+      <div className="app-frame flex h-auto flex-col overflow-visible sm:h-auto">
         <header className="chat-header flex shrink-0 flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-base font-semibold text-white">
               Сравнение RAG
             </h1>
             <p className="text-xs text-white/45">
-              День 22 · 10 контрольных вопросов
+              10 вопросов · три режима ответа
             </p>
           </div>
           <a

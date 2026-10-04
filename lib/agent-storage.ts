@@ -1,3 +1,4 @@
+import { isRagSearchOptions } from '@/scripts/rag/relevance.mjs';
 import {
   Agent,
   MAX_BRANCH_SUMMARY_LENGTH,
@@ -149,6 +150,8 @@ function restoreAttachment(value: unknown): ChatAttachment | null {
 
 function restoreConfig(value: unknown): AgentConfig | null {
   if (!isRecord(value)) return null;
+  if (value.ragSearch !== undefined && !isRagSearchOptions(value.ragSearch))
+    return null;
   if (value.useRag !== undefined && typeof value.useRag !== 'boolean')
     return null;
 
@@ -199,6 +202,9 @@ function restoreConfig(value: unknown): AgentConfig | null {
   return {
     profileMode,
     useRag: value.useRag === true,
+    ...(isRagSearchOptions(value.ragSearch)
+      ? { ragSearch: { ...value.ragSearch } }
+      : {}),
     customProfile,
     model: value.model,
     temperature: value.temperature,

@@ -68,6 +68,35 @@ const answerResponse = () =>
   );
 
 describe('RAG generation pipeline', () => {
+  it('generates with explicit empty context after filtering and persists the processing trace', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(searchResponse())
+      .mockResolvedValueOnce(answerResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await POST(
+      request({
+        ragSearch: {
+          rewrite: true,
+          filter: true,
+          topKBefore: 12,
+          topKAfter: 5,
+          minSimilarity: 0.99,
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    const generation = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(generation.input.at(-2).content).toBe('RAG_CONTEXT_JSON\n[]');
+    expect(generation.instructions).toContain('список источников пуст');
+    const events: ChatStreamEvent[] = [];
+    await readChatStream(response.body!, (event) => events.push(event));
+    expect(events[0]).toMatchObject({
+      type: 'rag',
+      retrieval: { sources: [], processing: { candidates: 1, passed: 0 } },
+    });
+  });
   it('retrieves using only the question, puts bounded source data before it and emits citations metadata', async () => {
     process.env.DEEPSEEK_API_KEY = 'test-secret';
     const fetchMock = vi
@@ -92,10 +121,44 @@ describe('RAG generation pipeline', () => {
     expect(generationBody.input.at(-2).content).toContain('RAG_CONTEXT_JSON');
     expect(generationBody.input.at(-2).content).toContain('localStorage');
     expect(generationBody.instructions).toBe(RAG_INSTRUCTIONS);
+    expect(generationBody.instructions).not.toContain('фильтр');
     const events: ChatStreamEvent[] = [];
     await readChatStream(response.body!, (event) => events.push(event));
     expect(events[0]).toEqual({ type: 'rag', retrieval });
     expect(events.at(-1)).toMatchObject({ type: 'done', inputTokens: 100 });
+  });
+  it('keeps the original top-five order without thresholds or processing', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    const hits = Array.from({ length: 6 }, (_, i) => ({
+      ...retrieval.sources[0],
+      chunk_id: `c${i}`,
+      score: 0.1 - i / 100,
+    }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ build_id: 'build-1', hits }))
+      .mockResolvedValueOnce(answerResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await POST(request({ ragBuildId: 'build-1' }));
+    const events: ChatStreamEvent[] = [];
+    await readChatStream(response.body!, (event) => events.push(event));
+    const event = events[0];
+    expect(event.type).toBe('rag');
+    if (event.type !== 'rag') throw new Error('missing retrieval');
+    expect(event.retrieval.processing).toBeUndefined();
+    expect(event.retrieval.sources.map((s) => s.chunk_id)).toEqual([
+      'c0',
+      'c1',
+      'c2',
+      'c3',
+      'c4',
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      action: 'search',
+      strategy: 'overlap',
+      query: retrieval.query,
+      build_id: 'build-1',
+    });
   });
   it('does not search or inject context in the baseline mode', async () => {
     process.env.DEEPSEEK_API_KEY = 'test-secret';

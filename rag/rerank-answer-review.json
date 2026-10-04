@@ -1,0 +1,221 @@
+{
+  "run_id": "dac3e31d-9ba7-4cf1-997f-36f70f03dfda",
+  "reviewer": "Codex: ручная оценка по зафиксированным ожиданиям и переданным фрагментам; не слепое независимое ревью",
+  "rubric": "Один балл за полностью изложенный ожидаемый факт. Для отрицательных вопросов: явное отсутствие данных и отсутствие выдуманного ответа. Неполный составной факт даёт 0; это отмечено в notes. Проверка ссылок включает чтение фрагментов, а не только наличие ID.",
+  "rows": [
+    {
+      "id": "test01",
+      "baseline": {
+        "answer_hash": "a2a0062b3b36185aad6a920cf9924ac25493f625c2d274cc7ad28ffd4c2cec83",
+        "facts": [
+          true,
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Все три ожидаемых факта раскрыты: отдельные сводки, объединяющий запрос и сохранение исходных веток. Указанные промпты и поведение подтверждены переданными README и кодом."
+      },
+      "rag": {
+        "answer_hash": "bef776d3cd11d4a03804a73fdbfe0353d11c03dff6c0c2146e236321cd625125",
+        "facts": [
+          true,
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Все три ожидаемых факта раскрыты: отдельные сводки, объединяющий запрос и сохранение исходных веток. Указанные промпты и поведение подтверждены переданными README и кодом."
+      }
+    },
+    {
+      "id": "test02",
+      "baseline": {
+        "answer_hash": "467a324750f43a7405a6c2f63486aa94689c80888196b4d1a008434e76048986",
+        "facts": [
+          true,
+          false,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Верно описаны Sliding Window и instructions. Рабочая память упомянута, но не сказано, что её сообщение помещается в начало input: по строгому составному критерию второй факт не засчитан."
+      },
+      "rag": {
+        "answer_hash": "b80df02a1fb2cebffe75f8a5714698b46d3466011fdf659e7689137851f4bae1",
+        "facts": [
+          true,
+          false,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Верно описаны Sliding Window и instructions. Рабочая память упомянута, но не сказано, что её сообщение помещается в начало input: по строгому составному критерию второй факт не засчитан."
+      }
+    },
+    {
+      "id": "test03",
+      "baseline": {
+        "answer_hash": "35201d12bd59badbb3a6f719a95c3da1b74f5de79a8e688dbceaacd2578b55ef",
+        "facts": [
+          true,
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Проверка полного ответа отдельным запросом, до двух исправлений и отказ при неудаче подтверждены README. Все ожидаемые факты есть."
+      },
+      "rag": {
+        "answer_hash": "853b97214bedddaa89495ad6c8d6b35f3073363b42e971732c61c5050e1c8a89",
+        "facts": [
+          true,
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Проверка полного ответа отдельным запросом, до двух исправлений и отказ при неудаче подтверждены README. Все ожидаемые факты есть."
+      }
+    },
+    {
+      "id": "test04",
+      "baseline": {
+        "answer_hash": "0fcbfd0bea519241c4d7e0f4e6c87fdbf55a4383f94724c4eab1ab4991fc677b",
+        "facts": [
+          true,
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Приведены число, размер с точной формулой и форматы. Обозначение МБ в тексте нестрогое, но формула явно задаёт 10 МиБ. Ограничение общей суммы и проверка flash подтверждены кодом."
+      },
+      "rag": {
+        "answer_hash": "ff82a57dcc40a5c8900b6c60fc11989bdc5d7a8fff570fa002574886553d8c1a",
+        "facts": [
+          true,
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Приведены число, размер с точной формулой и форматы. Обозначение МБ в тексте нестрогое, но формула явно задаёт 10 МиБ. Ограничение общей суммы и проверка flash подтверждены кодом."
+      }
+    },
+    {
+      "id": "test05",
+      "baseline": {
+        "answer_hash": "fae4ccbffdfb76807da947ea595b7971e067f99b7dd955d594e688879f81301b",
+        "facts": [
+          false
+        ],
+        "unsupported_claims": false,
+        "notes": "dispose назван только предположительно; ответ прямо отказывается подтвердить отписку именно от общей памяти. Эталонный факт не засчитан. Найденные конструктор и README дают намёк, но тело dispose не попало в контекст."
+      },
+      "rag": {
+        "answer_hash": "5fa4b667c69442741df4565c9ce994c26b4024c7023e90dabbd46fd40bde03d4",
+        "facts": [
+          false
+        ],
+        "unsupported_claims": false,
+        "notes": "dispose назван только предположительно; ответ прямо отказывается подтвердить отписку именно от общей памяти. Эталонный факт не засчитан. Найденные конструктор и README дают намёк, но тело dispose не попало в контекст."
+      }
+    },
+    {
+      "id": "test06",
+      "baseline": {
+        "answer_hash": "28bb730608eb4582dfd45593c05fc1f552d009de26b3a2790c2a23c5d6553250",
+        "facts": [
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Верно указаны отказ валидации и отсутствие отправки неподдерживаемого файла в модель. В обработанном режиме ответ опирается на prepareAttachments, хотя эталон retrieval размечен в другом файле."
+      },
+      "rag": {
+        "answer_hash": "b82759c0978f5c21b643c0cf42088ba2ccc75f3567f3b9a946fc8dbfebd6de34",
+        "facts": [
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Верно указаны отказ валидации и отсутствие отправки неподдерживаемого файла в модель. В обработанном режиме ответ опирается на prepareAttachments, хотя эталон retrieval размечен в другом файле."
+      }
+    },
+    {
+      "id": "test07",
+      "baseline": {
+        "answer_hash": "d07c4cdb61d0c2c13f53dc8568d668b188fd11a114d4ac3c3d14dc766cd83b90",
+        "facts": [
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Корректно указано отсутствие описанного лимита глубины. Число и место настройки не выдуманы. Дополнительное описание Branching подтверждено источниками."
+      },
+      "rag": {
+        "answer_hash": "d459efdb49916d71e06f5f9359ff56f256c0ac1deb136fe50292406b1814c8c4",
+        "facts": [
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Корректно указано отсутствие описанного лимита глубины. Число и место настройки не выдуманы. Дополнительное описание Branching подтверждено источниками."
+      }
+    },
+    {
+      "id": "test08",
+      "baseline": {
+        "answer_hash": "8734744dcafaba32e2f4dc33217eeca009126ba1362043fddf0bb5f18ceeb56e",
+        "facts": [
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Корректный отказ: сведений об антивирусе нет. В обработанном режиме отфильтрованы все чанки; baseline также отказал при наличии тематического контекста."
+      },
+      "rag": {
+        "answer_hash": "33d0235f7db62f457356237811846eca24d45cf62aba4708a2530200c0d0f7af",
+        "facts": [
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Корректный отказ: сведений об антивирусе нет. В обработанном режиме отфильтрованы все чанки; baseline также отказал при наличии тематического контекста."
+      }
+    },
+    {
+      "id": "test09",
+      "baseline": {
+        "answer_hash": "5467c7f2a2595ad6fa101a34fdd4028bfe8f1d0ef32482f9f30ca4f8bf3b5793",
+        "facts": [
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "SLA не выдуман, отсутствие сведений обозначено. Приведённые MAX_INVARIANT_RETRIES и VALIDATOR_OUTPUT_TOKENS присутствуют в источниках."
+      },
+      "rag": {
+        "answer_hash": "5b827ec024de0ad8d04401c4d2568599c4ae75dc83ebcf46f5be79e5a5325ea8",
+        "facts": [
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "SLA не выдуман, отсутствие сведений обозначено. Приведённые MAX_INVARIANT_RETRIES и VALIDATOR_OUTPUT_TOKENS присутствуют в источниках."
+      }
+    },
+    {
+      "id": "test10",
+      "baseline": {
+        "answer_hash": "4a18f26990791436a52f3d4865aea70865dac215ac7832ca5dc968f75331954d",
+        "facts": [
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Число сетевых повторов не выдумано. Ответ отделяет локальное хранение от отсутствующих сведений о синхронизации устройств."
+      },
+      "rag": {
+        "answer_hash": "4916fdd109779a85052965c2d8210859442d1d909344928ceedaed5d90d2753a",
+        "facts": [
+          true,
+          true
+        ],
+        "unsupported_claims": false,
+        "notes": "Число сетевых повторов не выдумано. Ответ отделяет локальное хранение от отсутствующих сведений о синхронизации устройств."
+      }
+    }
+  ]
+}

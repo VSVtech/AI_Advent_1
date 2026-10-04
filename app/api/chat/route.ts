@@ -1,5 +1,7 @@
+import { isRagSearchOptions } from '@/scripts/rag/relevance.mjs';
 import {
   RAG_INSTRUCTIONS,
+  EMPTY_RAG_INSTRUCTIONS,
   withRagContext,
   type RagRetrieval,
 } from '@/lib/rag-context';
@@ -280,6 +282,8 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (
+    (body.ragSearch !== undefined &&
+      (body.useRag !== true || !isRagSearchOptions(body.ragSearch))) ||
     (body.useRag !== undefined && typeof body.useRag !== 'boolean') ||
     (body.ragBuildId !== undefined &&
       (body.useRag !== true ||
@@ -471,9 +475,14 @@ export async function POST(request: Request): Promise<Response> {
         body.messages,
         request.signal,
         body.ragBuildId,
+        body.ragSearch,
       );
       requestMessages = withRagContext(requestMessages, retrieval);
-      systemPrompt = [systemPrompt, RAG_INSTRUCTIONS]
+      systemPrompt = [
+        systemPrompt,
+        RAG_INSTRUCTIONS,
+        ...(retrieval.sources.length === 0 ? [EMPTY_RAG_INSTRUCTIONS] : []),
+      ]
         .filter(Boolean)
         .join('\n\n');
     } catch (error) {

@@ -139,6 +139,10 @@ body {
       #0d1516;
   }
 
+  body:has(.rag-comparison-page) {
+    overflow: auto;
+  }
+
   ::selection {
     background: rgb(83 218 190 / 30%);
   }
@@ -629,4 +633,11 @@ body {
   html {
     @apply font-sans;
   }
+}
+
+.rag-comparison-page pre {
+  max-height: none;
+  overflow: visible;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

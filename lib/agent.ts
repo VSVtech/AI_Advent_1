@@ -1,4 +1,5 @@
 import {
+  DEFAULT_RAG_SEARCH,
   isRagSearchOptions,
   type RagSearchOptions,
 } from '@/scripts/rag/relevance.mjs';
@@ -66,6 +67,11 @@ import {
 } from '@/lib/memory-layers';
 import { type AgentProfileMode } from '@/lib/user-profile';
 import {
+  factsWithConfiguredGoal,
+  taskMemoryFromFacts,
+  type DialogueTaskMemory,
+} from '@/lib/task-memory';
+import {
   fetchWeatherJobResults,
   MAX_TRACKED_WEATHER_JOBS,
 } from '@/lib/weather-jobs';
@@ -73,6 +79,7 @@ import {
 export interface AgentConfig {
   useRag?: boolean;
   ragSearch?: RagSearchOptions;
+  taskGoal?: string;
   profileMode: AgentProfileMode;
   customProfile: string;
   model: string;
@@ -364,14 +371,16 @@ function buildUnifiedSummaryPrompt(
 
 export function createDefaultAgentConfig(): AgentConfig {
   return {
-    useRag: false,
+    useRag: true,
+    ragSearch: { ...DEFAULT_RAG_SEARCH },
+    taskGoal: '',
     profileMode: 'general',
     customProfile: '',
     model: DEFAULT_MODEL,
     temperature: DEFAULT_TEMPERATURE,
     outputFormat: 'text',
     contextWindowTokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
-    contextStrategy: 'none',
+    contextStrategy: 'sticky-facts',
     targetOutputTokens: DEFAULT_TARGET_OUTPUT_TOKENS,
     useSystemPrompt: true,
     useSelectorSystemPrompt: true,
@@ -640,6 +649,13 @@ export class Agent {
 
   getFacts(): MemoryFacts {
     return { ...this.facts };
+  }
+
+  getTaskMemory(): DialogueTaskMemory {
+    return taskMemoryFromFacts(
+      this.facts,
+      this.config.taskGoal || this.taskState?.goal || '',
+    );
   }
 
   getTaskState(): TaskState | null {
@@ -1104,7 +1120,10 @@ export class Agent {
     this.notify();
     try {
       const result = await this.memoryCurator.analyze({
-        shortTerm: this.facts,
+        shortTerm: factsWithConfiguredGoal(
+          this.facts,
+          this.config.taskGoal || this.taskState?.goal || '',
+        ),
         longTerm: this.longTermMemory.getEntries(),
         recentDialogue: dialogueTranscript(dialogue),
         signal,
@@ -1514,7 +1533,12 @@ export class Agent {
           // Sliding Window deliberately discards older dialogue context;
           // Sticky Facts is the ten-message strategy that also sends facts.
           shortTerm:
-            this.config.contextStrategy === 'sliding-window' ? {} : this.facts,
+            this.config.contextStrategy === 'sliding-window'
+              ? {}
+              : factsWithConfiguredGoal(
+                  this.facts,
+                  this.config.taskGoal || this.taskState?.goal || '',
+                ),
           working: this.workingMemory,
         },
         this.messages.filter((message) => message.id !== assistantMessage.id),

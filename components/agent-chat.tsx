@@ -1,8 +1,6 @@
 'use client';
-import { DEFAULT_RAG_SEARCH } from '@/scripts/rag/relevance.mjs';
-import { RagSearchSettings } from '@/components/rag-search-settings';
-
 import { RagSources } from '@/components/rag-sources';
+import { TaskMemoryCard } from '@/components/task-memory-card';
 
 import { tokenize, type ShjToken } from '@speed-highlight/core';
 import {
@@ -408,17 +406,7 @@ export function AgentChat({
                 {agent.name}
               </h1>
               <p className="truncate text-xs text-white/40">
-                Температура {agent.config.temperature} · формат{' '}
-                {agent.config.outputFormat.toUpperCase()} · цель{' '}
-                {agent.config.targetOutputTokens === null
-                  ? 'без ограничения'
-                  : `${agent.config.targetOutputTokens} ток.`}{' '}
-                · окно {agent.config.contextWindowTokens} ток. · профиль{' '}
-                {agent.config.profileMode === 'general'
-                  ? 'General Profile'
-                  : agent.config.customProfile.trim()
-                    ? 'свой'
-                    : 'выключен'}
+                RAG с цитатами · история сохраняется · память задачи
               </p>
             </div>
           </div>
@@ -456,55 +444,7 @@ export function AgentChat({
           </div>
         </header>
 
-        <div className="flex flex-wrap items-center gap-3 border-b border-white/5 px-4 py-2 text-xs text-white/55">
-          <label className="flex items-center gap-2">
-            Режим ответа
-            <select
-              aria-label="Режим RAG"
-              value={
-                agent.config.useRag
-                  ? agent.config.ragSearch
-                    ? 'enhanced'
-                    : 'on'
-                  : 'off'
-              }
-              disabled={isGenerating}
-              onChange={(event) => {
-                agent.setRagEnabled(event.target.value !== 'off');
-                agent.setRagSearch(
-                  event.target.value === 'enhanced'
-                    ? { ...DEFAULT_RAG_SEARCH }
-                    : undefined,
-                );
-              }}
-              className="rounded-lg border border-white/15 bg-[#18201f] px-3 py-2 text-white/85"
-            >
-              <option value="off">Без RAG</option>
-              <option value="on">С RAG · день 22</option>
-              <option value="enhanced">RAG с цитатами · день 24</option>
-            </select>
-          </label>
-          <span>
-            Для чистого сравнения используйте «База знаний»: история текущего
-            диалога сохраняется.
-          </span>
-        </div>
-
-        {agent.config.useRag && agent.config.ragSearch ? (
-          <div className="px-4 py-2">
-            <p className="mb-2 text-xs text-emerald-200/70">
-              Ответ появится после проверки цитат и смысла. При слабом контексте
-              — «Не знаю» и просьба уточнить вопрос. Факты берутся из базы
-              знаний; MCP в этом режиме не вызывается. Проверка готового ответа
-              обязательна и не отключается настройками поиска.
-            </p>
-            <RagSearchSettings
-              value={agent.config.ragSearch}
-              disabled={isGenerating}
-              onChange={(options) => agent.setRagSearch(options)}
-            />
-          </div>
-        ) : null}
+        <TaskMemoryCard agent={agent} />
 
         {agent.config.contextStrategy === 'branching' ? (
           <section
@@ -668,8 +608,9 @@ export function AgentChat({
                   О чём поговорим?
                 </h2>
                 <p className="mx-auto max-w-md text-sm leading-6 text-white/45">
-                  Ответы приходят напрямую из DeepSeek. У этого агента своя
-                  отдельная история диалога.
+                  Каждый вопрос проходит поиск по базе знаний. Ответ появится
+                  после проверки цитат и всегда покажет использованные
+                  источники.
                 </p>
               </div>
 

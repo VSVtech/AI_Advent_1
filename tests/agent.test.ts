@@ -92,6 +92,9 @@ describe('Agent', () => {
         contextWindowTokens: 2000,
         targetOutputTokens: 300,
         useSystemPrompt: false,
+        useRag: false,
+        ragSearch: undefined,
+        contextStrategy: 'none',
       }),
     );
 
@@ -386,7 +389,9 @@ describe('Agent', () => {
       );
     stubFetchWithMemory(fetchMock);
 
-    const agent = new Agent(config({ contextWindowTokens: 100 }));
+    const agent = new Agent(
+      config({ contextWindowTokens: 100, contextStrategy: 'none' }),
+    );
     await agent.sendMessage('Первый запрос');
 
     expect(agent.getSnapshot().messages[1]).toMatchObject({
@@ -410,7 +415,7 @@ describe('Agent', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const agent = new Agent(
-      config({ contextWindowTokens: 50_000 }),
+      config({ contextWindowTokens: 50_000, contextStrategy: 'none' }),
       undefined,
       {
         id: 'persisted-agent',

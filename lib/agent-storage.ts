@@ -47,6 +47,8 @@ import {
 } from '@/lib/user-profile';
 import { restoreTaskState } from '@/lib/task-state';
 import { restoreRagRetrieval } from '@/lib/rag-context';
+import { normalizeDialogueGoal } from '@/lib/task-memory';
+import { DEFAULT_RAG_SEARCH } from '@/scripts/rag/relevance.mjs';
 
 export const AGENT_SESSIONS_STORAGE_KEY = 'deepseek-chat:agent-sessions:v2';
 const PREVIOUS_AGENT_SESSIONS_STORAGE_KEY = 'deepseek-chat:agent-sessions:v1';
@@ -175,6 +177,8 @@ function restoreConfig(value: unknown): AgentConfig | null {
     value.customProfile === undefined
       ? ''
       : normalizeProfileText(value.customProfile);
+  const taskGoal =
+    value.taskGoal === undefined ? '' : normalizeDialogueGoal(value.taskGoal);
   const hasValidCustomSystemPrompt =
     customSystemPrompt === null ||
     (typeof customSystemPrompt === 'string' &&
@@ -184,6 +188,7 @@ function restoreConfig(value: unknown): AgentConfig | null {
     !isValidModel(value.model) ||
     !isAgentProfileMode(profileMode) ||
     customProfile === null ||
+    taskGoal === null ||
     !isValidTemperature(value.temperature) ||
     !isOutputFormat(value.outputFormat) ||
     !isValidContextWindowTokens(contextWindowTokens) ||
@@ -201,10 +206,11 @@ function restoreConfig(value: unknown): AgentConfig | null {
 
   return {
     profileMode,
-    useRag: value.useRag === true,
-    ...(isRagSearchOptions(value.ragSearch)
-      ? { ragSearch: { ...value.ragSearch } }
-      : {}),
+    useRag: true,
+    ragSearch: isRagSearchOptions(value.ragSearch)
+      ? { ...value.ragSearch }
+      : { ...DEFAULT_RAG_SEARCH },
+    taskGoal,
     customProfile,
     model: value.model,
     temperature: value.temperature,

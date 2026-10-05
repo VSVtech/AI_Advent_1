@@ -275,7 +275,7 @@ describe('RAG generation pipeline', () => {
 });
 
 describe('RAG state and persistence', () => {
-  it('restores old sessions with RAG off and round-trips source provenance', () => {
+  it('migrates old sessions to grounded RAG and round-trips source provenance', () => {
     const agent = new Agent(createDefaultAgentConfig());
     const state = agent.exportState();
     delete state.config.useRag;
@@ -287,7 +287,8 @@ describe('RAG state and persistence', () => {
           activeAgentId: state.id,
         }),
       ).agents[0];
-    expect(restore().config.useRag).toBe(false);
+    expect(restore().config.useRag).toBe(true);
+    expect(restore().config.ragSearch?.rerank).toBe(true);
     state.config.useRag = true;
     state.messages = [
       {

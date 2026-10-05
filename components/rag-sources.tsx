@@ -1,10 +1,11 @@
+import { groundingSources } from '@/scripts/rag/grounding.mjs';
 import type { RagRetrieval } from '@/lib/rag-context';
 
 export function RagSources({ retrieval }: { retrieval: RagRetrieval }) {
   return (
     <details className="mt-3 min-w-0 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.035] p-3 text-xs text-white/65">
       <summary className="cursor-pointer text-emerald-200">
-        С RAG{' '}
+        Найденные фрагменты RAG{' '}
         {retrieval.processing
           ? `· Найдено: ${retrieval.processing.candidates} · После порога: ${retrieval.processing.passed}${retrieval.processing.options.verifyEvidence ? ` · С цитатами: ${retrieval.processing.verified}` : ''}${retrieval.processing.options.deduplicate ? ` · Без повторов: ${retrieval.processing.unique}` : ''}`
           : ''}{' '}
@@ -75,8 +76,14 @@ export function RagSources({ retrieval }: { retrieval: RagRetrieval }) {
         относятся к этому ответу; наличие фрагмента не гарантирует, что модель
         использовала его верно.
       </p>
+      {retrieval.followup ? (
+        <p className="mt-2 whitespace-pre-wrap break-words text-amber-200">
+          Дополнительный поиск доказательств: {retrieval.followup.query} · ещё{' '}
+          {retrieval.followup.sources.length} фрагментов (тот же индекс).
+        </p>
+      ) : null}
       <div className="mt-3 space-y-3">
-        {retrieval.sources.map((source) => (
+        {groundingSources(retrieval).map((source) => (
           <details
             key={source.id}
             className="rounded border border-white/10 p-2"

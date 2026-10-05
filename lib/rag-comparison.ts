@@ -233,7 +233,9 @@ export async function runComparison({
             useRag,
             ...(useRag ? { ragBuildId: buildId } : {}),
             // Omission selects the original Day 22 search path (fixed top-5).
-            ...(options && mode === 'rag' ? { ragSearch: { ...options } } : {}),
+            ...(options && mode === 'rag'
+              ? { ragSearch: { ...options }, ragGrounding: true }
+              : {}),
           };
           const response = await fetcher('/api/chat', {
             method: 'POST',

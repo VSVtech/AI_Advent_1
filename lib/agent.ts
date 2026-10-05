@@ -175,6 +175,9 @@ function cloneMessage(message: ChatMessage): ChatMessage {
       ? {
           rag: {
             ...message.rag,
+            ...(message.rag.followup
+              ? { followup: structuredClone(message.rag.followup) }
+              : {}),
             sources: message.rag.sources.map((source) => ({
               ...source,
               ...(source.evidence
@@ -1545,7 +1548,10 @@ export class Agent {
             ? {
                 useRag: true,
                 ...(this.config.ragSearch
-                  ? { ragSearch: { ...this.config.ragSearch } }
+                  ? {
+                      ragSearch: { ...this.config.ragSearch },
+                      ragGrounding: true,
+                    }
                   : {}),
               }
             : {}),

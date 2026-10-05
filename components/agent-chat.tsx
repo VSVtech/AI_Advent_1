@@ -480,8 +480,8 @@ export function AgentChat({
               className="rounded-lg border border-white/15 bg-[#18201f] px-3 py-2 text-white/85"
             >
               <option value="off">Без RAG</option>
-              <option value="on">С RAG</option>
-              <option value="enhanced">RAG + обработка</option>
+              <option value="on">С RAG · день 22</option>
+              <option value="enhanced">RAG с цитатами · день 24</option>
             </select>
           </label>
           <span>
@@ -492,6 +492,12 @@ export function AgentChat({
 
         {agent.config.useRag && agent.config.ragSearch ? (
           <div className="px-4 py-2">
+            <p className="mb-2 text-xs text-emerald-200/70">
+              Ответ появится после проверки цитат и смысла. При слабом контексте
+              — «Не знаю» и просьба уточнить вопрос. Факты берутся из базы
+              знаний; MCP в этом режиме не вызывается. Проверка готового ответа
+              обязательна и не отключается настройками поиска.
+            </p>
             <RagSearchSettings
               value={agent.config.ragSearch}
               disabled={isGenerating}

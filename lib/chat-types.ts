@@ -73,6 +73,8 @@ export interface ChatRequest {
   useMcpTools?: boolean;
   useRag?: boolean;
   ragSearch?: RagSearchOptions;
+  // Day 24: buffer, validate exact citations and check claims before displaying.
+  ragGrounding?: boolean;
   // Optional immutable snapshot for reproducible comparisons.
   ragBuildId?: string;
   // Explicit profile text, distinct from automatically curated memory.

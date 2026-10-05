@@ -1,4 +1,8 @@
 import { EVIDENCE_MODEL } from './evidence.mjs';
+import {
+  LARGE_GROUNDING_MODEL,
+  readGroundingConfig,
+} from './grounding-config.mjs';
 import { mkdir, rename, stat } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
@@ -46,7 +50,12 @@ for (const name of [
   );
   await rename(`${destination}.tmp`, destination);
 }
-for (const model of [REWRITE_MODEL, EVIDENCE_MODEL]) {
+for (const model of new Set([
+  REWRITE_MODEL,
+  EVIDENCE_MODEL,
+  readGroundingConfig().model,
+  ...(process.argv.includes('--grounding-27b') ? [LARGE_GROUNDING_MODEL] : []),
+])) {
   console.log(`Загрузка локальной модели ${model}`);
   const response = await fetch('http://127.0.0.1:11434/api/pull', {
     method: 'POST',

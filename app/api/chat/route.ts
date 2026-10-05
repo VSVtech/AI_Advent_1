@@ -1,3 +1,12 @@
+import {
+  GROUNDING_PROMPT,
+  groundingContextSources,
+  passesGroundingThreshold,
+} from '@/scripts/rag/grounding.mjs';
+import {
+  enforceGroundedResponse,
+  unknownGroundedResponse,
+} from '@/lib/server/rag-grounding';
 import { isRagSearchOptions } from '@/scripts/rag/relevance.mjs';
 import {
   RAG_INSTRUCTIONS,
@@ -282,6 +291,8 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (
+    (body.ragGrounding !== undefined &&
+      (typeof body.ragGrounding !== 'boolean' || body.useRag !== true)) ||
     (body.ragSearch !== undefined &&
       (body.useRag !== true || !isRagSearchOptions(body.ragSearch))) ||
     (body.useRag !== undefined && typeof body.useRag !== 'boolean') ||
@@ -297,6 +308,8 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const outputFormat = body.format ?? 'text';
+  const grounding = body.ragGrounding === true;
+  const generationFormat = grounding ? 'json' : outputFormat;
 
   if (!isChatOutputFormat(outputFormat)) {
     return jsonError(400, {
@@ -461,7 +474,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
 
-  if (!apiKey) {
+  if (!apiKey && !grounding) {
     return jsonError(500, {
       code: 'configuration_error',
       message: 'DEEPSEEK_API_KEY не настроен. Добавьте токен в .env.local.',
@@ -475,12 +488,30 @@ export async function POST(request: Request): Promise<Response> {
         body.messages,
         request.signal,
         body.ragBuildId,
-        body.ragSearch,
+        body.ragSearch ??
+          (grounding
+            ? {
+                rewrite: false,
+                filter: true,
+                topKBefore: 5,
+                topKAfter: 5,
+                minSimilarity: 0.45,
+              }
+            : undefined),
       );
-      requestMessages = withRagContext(requestMessages, retrieval);
+      requestMessages = grounding
+        ? [
+            ...requestMessages.slice(0, -1),
+            {
+              role: 'user',
+              content: `RAG_CONTEXT_JSON\n${JSON.stringify(groundingContextSources(retrieval))}`,
+            },
+            requestMessages.at(-1)!,
+          ]
+        : withRagContext(requestMessages, retrieval);
       systemPrompt = [
         systemPrompt,
-        RAG_INSTRUCTIONS,
+        grounding ? GROUNDING_PROMPT : RAG_INSTRUCTIONS,
         ...(retrieval.sources.length === 0 ? [EMPTY_RAG_INSTRUCTIONS] : []),
       ]
         .filter(Boolean)
@@ -504,10 +535,30 @@ export async function POST(request: Request): Promise<Response> {
     if (ragOverflow) return ragOverflow;
   }
 
+  if (
+    retrieval &&
+    grounding &&
+    !retrieval.sources.some((source) =>
+      passesGroundingThreshold(source, retrieval.processing?.options),
+    )
+  ) {
+    return withRagMetadata(
+      unknownGroundedResponse('weak_context', outputFormat),
+      retrieval,
+    );
+  }
+
+  if (!apiKey)
+    return jsonError(500, {
+      code: 'configuration_error',
+      message: 'DEEPSEEK_API_KEY не настроен. Добавьте токен в .env.local.',
+    });
+
   const generate = async (): Promise<Response> => {
-    const mcpConnection = body.useMcpTools
-      ? await connectAgentMcp(request.signal)
-      : null;
+    const mcpConnection =
+      body.useMcpTools && !grounding
+        ? await connectAgentMcp(request.signal)
+        : null;
     if (request.signal.aborted) return new Response(null, { status: 499 });
 
     if (taskState && systemPrompt) {
@@ -515,7 +566,7 @@ export async function POST(request: Request): Promise<Response> {
         generateInvariantSafeOutput({
           apiKey,
           contextWindowTokens,
-          format: outputFormat,
+          format: generationFormat,
           maxOutputTokens,
           mcpConnection,
           messages: requestMessages,
@@ -528,12 +579,12 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    if (isStructuredOutputFormat(outputFormat)) {
+    if (isStructuredOutputFormat(generationFormat)) {
       return withMcpConnection(mcpConnection, () =>
         generateStructuredOutput({
           apiKey,
           contextWindowTokens,
-          format: outputFormat,
+          format: generationFormat,
           maxOutputTokens,
           mcpConnection,
           messages: requestMessages,
@@ -634,6 +685,38 @@ export async function POST(request: Request): Promise<Response> {
       ),
     );
   };
-  const response = await generate();
+  let response = await generate();
+  if (retrieval && grounding) {
+    response = await enforceGroundedResponse(
+      response,
+      retrieval,
+      outputFormat,
+      request.signal,
+      async (feedback) => {
+        // The repair feedback carries the complete updated catalog. Remove the
+        // initial injected catalog rather than spending the context budget twice.
+        const initialContext = requestMessages.at(-2);
+        if (
+          typeof initialContext?.content === 'string' &&
+          initialContext.content.startsWith('RAG_CONTEXT_JSON\n')
+        ) {
+          requestMessages = [
+            ...requestMessages.slice(0, -2),
+            requestMessages.at(-1)!,
+          ];
+        }
+        requestMessages = [
+          ...requestMessages,
+          { role: 'user', content: feedback },
+        ];
+        const overflow = contextWindowError({
+          contextWindowTokens,
+          messages: requestMessages,
+          systemPrompt,
+        });
+        return overflow ?? generate();
+      },
+    );
+  }
   return retrieval ? withRagMetadata(response, retrieval) : response;
 }

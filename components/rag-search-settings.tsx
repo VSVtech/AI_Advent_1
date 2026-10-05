@@ -58,7 +58,9 @@ export function RagSearchSettings({
               onChange({ ...value, [key]: event.target.checked })
             }
           />
-          {key === 'verifyEvidence' ? 'Проверка цитат' : 'Убрать повторы'}
+          {key === 'verifyEvidence'
+            ? 'Отбор чанков по цитатам'
+            : 'Убрать повторы'}
         </label>
       ))}
       <span>Top-K после — максимум, без добора отвергнутых фрагментов.</span>

@@ -8,6 +8,8 @@ import { buildIndices } from './pipeline.mjs';
 import { evaluate } from './evaluate.mjs';
 import { loadTokenizer } from './tokenizer.mjs';
 import { loadIndex, readCurrent, readJson } from './storage.mjs';
+import { createConfiguredGroundingVerifier } from './grounding-config.mjs';
+import { isGroundedDraft } from './grounding.mjs';
 import { LocalEvidenceVerifier } from './evidence.mjs';
 import { LocalRewriter, LocalReranker } from './models.mjs';
 import { retrieveCandidates } from './retrieval.mjs';
@@ -23,6 +25,7 @@ export function createRagHandler({
   rewriter = new LocalRewriter(),
   reranker = new LocalReranker(),
   verifier = new LocalEvidenceVerifier(),
+  groundingVerifier = createConfiguredGroundingVerifier(),
 } = {}) {
   let job = { status: 'idle', action: null, progress: null, error: null };
   const onProgress = (progress) => {
@@ -126,6 +129,20 @@ export function createRagHandler({
       }
       if (!body || typeof body !== 'object')
         return json({ error: 'Некорректный запрос.' }, 400);
+      if (['verify-answer', 'answer-coverage'].includes(body.action)) {
+        if (
+          typeof body.query !== 'string' ||
+          !body.query.trim() ||
+          body.query.length > 2000 ||
+          !isGroundedDraft({ unknown: false, claims: body.claims })
+        )
+          return json({ error: 'Некорректный ответ для проверки.' }, 400);
+        return json(
+          await groundingVerifier[
+            body.action === 'answer-coverage' ? 'coverage' : 'verify'
+          ](body.query, body.claims, request.signal),
+        );
+      }
       if (body.action === 'index' || body.action === 'compare') {
         if (job.status === 'running')
           return json({ error: 'Дождитесь завершения текущей операции.' }, 409);
@@ -239,7 +256,7 @@ export function startRagServer(port = Number(process.env.RAG_PORT ?? 18803)) {
       let bytes = 0;
       for await (const buffer of incoming) {
         bytes += buffer.length;
-        if (bytes > 16_384) {
+        if (bytes > 65_536) {
           outgoing.writeHead(413);
           outgoing.end();
           return;

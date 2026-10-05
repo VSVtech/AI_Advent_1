@@ -99,6 +99,8 @@ describe('Unified RAG comparison', () => {
         ragBuildId: 'b1',
       });
       expect(raw.ragSearch).toBeUndefined();
+      expect(raw.ragGrounding).toBeUndefined();
+      expect(enhanced.ragGrounding).toBe(true);
       expect(enhanced.ragSearch).toEqual(options);
       expect(plain.messages).toHaveLength(1);
       expect(raw.messages).toEqual(plain.messages);

@@ -32,7 +32,10 @@
     "rag:calibrate": "node scripts/rag/benchmark.mjs calibrate",
     "rag:benchmark": "node scripts/rag/benchmark.mjs evaluate",
     "rag:evidence": "node scripts/rag/evaluate-evidence.mjs",
-    "rag:enhanced-answers": "node scripts/rag/answers.mjs --enhanced"
+    "rag:enhanced-answers": "node scripts/rag/answers.mjs --enhanced",
+    "rag:grounding": "node scripts/rag/evaluate-grounding.mjs",
+    "rag:judge:compare": "node scripts/rag/compare-grounding-models.mjs",
+    "rag:judge:configure": "node scripts/rag/configure-grounding.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

@@ -1,0 +1,93 @@
+{
+  "complete": false,
+  "created_at": "2026-10-05T08:51:47.502Z",
+  "profile": "27b-thinking",
+  "dataset_hash": "6133a8fd8ea898a954bf91ad338fc3bb0c3c3012d08937fe9581303313666c36",
+  "identity": {
+    "model": "qwen3.5:27b-q4_K_M",
+    "digest": "64ae5b1d651fb2709d5928ccb8dcfb4bb2cc9c2c8001ac34497e36a6cf905b59",
+    "prompt_hash": "d8edef0cf59aa3b68de5e55d1ebea6c018d749f4ab9214bd9dba1813f19605e0",
+    "coverage_prompt_hash": "1e168749f3ea8ca1238f82a8908785998edc132d7b1b3efd5b31e619810818c5",
+    "version": 8,
+    "think": true,
+    "guardrails": false,
+    "options": {
+      "verify": {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0,
+        "presence_penalty": 0,
+        "repeat_penalty": 1,
+        "seed": 42,
+        "num_ctx": 8192,
+        "num_predict": 4096
+      },
+      "coverage": {
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0,
+        "presence_penalty": 0,
+        "repeat_penalty": 1,
+        "seed": 42,
+        "num_ctx": 8192,
+        "num_predict": 4096
+      }
+    }
+  },
+  "note": "Метки размечены Codex до сравнения моделей. saved — известные регрессии; new — новые синтетические примеры, не независимый человеческий benchmark. Ожидания не передаются модели. В сравнении моделей детерминированные числовые guardrails отключены одинаково для всех; в рабочем пайплайне они включены.",
+  "rows": [
+    {
+      "id": "saved-test01-1",
+      "group": "saved",
+      "query": "После объединения двух вариантов переписки старые варианты исчезнут? Как именно строится общая сводка?",
+      "claim": {
+        "text": "При объединении старые ветки не удаляются; новая объединённая ветка начинает с пустой рабочей памятью, а долговременная остается общой для всех агентов.",
+        "citations": [
+          {
+            "source_id": "S1",
+            "quote": "При объединении рабочие записи каждой\nветки учитываются в её сводке; новая объединённая ветка начинает с пустой\nрабочей памятью, а долговременная остаётся общей для всех агентов."
+          }
+        ]
+      },
+      "expected": "insufficient",
+      "origin": {
+        "report": "grounding-comparison.json",
+        "question": "test01"
+      },
+      "predicted": "error",
+      "correct": false,
+      "false_accept": false,
+      "false_reject": false,
+      "error": "The operation was aborted due to timeout",
+      "elapsed_ms": 240005
+    }
+  ],
+  "coverage": [],
+  "memory": [
+    {
+      "at": "2026-10-05T08:55:47.521Z",
+      "models": [
+        {
+          "name": "qwen3.5:27b-q4_K_M",
+          "size": 17837955480,
+          "size_vram": 17837955480,
+          "context_length": 8192
+        }
+      ]
+    }
+  ],
+  "stopped_early": "Pilot interrupted after first 240-second timeout; remaining cases and coverage not evaluated.",
+  "summary": {
+    "cases": 1,
+    "correct": 0,
+    "false_accepts": 0,
+    "false_rejects": 0,
+    "errors": 1,
+    "coverage_correct": 0,
+    "coverage_total": 0,
+    "median_ms": 240005,
+    "p95_ms": 240005
+  }
+}

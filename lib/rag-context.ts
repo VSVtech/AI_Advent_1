@@ -30,6 +30,7 @@ export type RagRetrieval = {
   strategy: typeof RAG_STRATEGY;
   query: string;
   sources: RagSource[];
+  followup?: Omit<RagRetrieval, 'followup'>;
   processing?: {
     options: RagSearchOptions;
     search_query: string;
@@ -247,7 +248,25 @@ export function restoreRagRetrieval(value: unknown): RagRetrieval | null {
     });
   }
   if (JSON.stringify(sources).length > MAX_RAG_CONTEXT_CHARS) return null;
+  let followup: RagRetrieval | null = null;
+  if (value.followup !== undefined) {
+    if (
+      !record(value.followup) ||
+      value.followup.followup !== undefined ||
+      value.followup.build_id !== value.build_id ||
+      value.followup.strategy !== value.strategy
+    )
+      return null;
+    followup = restoreRagRetrieval(value.followup);
+    if (
+      !followup ||
+      followup.sources.length > 3 ||
+      JSON.stringify(followup.sources).length > 8000
+    )
+      return null;
+  }
   return {
+    ...(followup ? { followup } : {}),
     build_id: value.build_id,
     strategy: RAG_STRATEGY,
     query: value.query,

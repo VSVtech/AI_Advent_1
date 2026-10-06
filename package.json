@@ -35,7 +35,8 @@
     "rag:enhanced-answers": "node scripts/rag/answers.mjs --enhanced",
     "rag:grounding": "node scripts/rag/evaluate-grounding.mjs",
     "rag:judge:compare": "node scripts/rag/compare-grounding-models.mjs",
-    "rag:judge:configure": "node scripts/rag/configure-grounding.mjs"
+    "rag:judge:configure": "node scripts/rag/configure-grounding.mjs",
+    "local:check": "node scripts/check-local-llm.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

@@ -139,7 +139,8 @@ body {
       #0d1516;
   }
 
-  body:has(.rag-comparison-page) {
+  body:has(.rag-comparison-page),
+  body:has(.local-chat-page) {
     overflow: auto;
   }
 

@@ -4,6 +4,7 @@
 import {
   BookOpen,
   Columns3,
+  Cpu,
   CloudRain,
   ListTodo,
   Plus,
@@ -195,6 +196,13 @@ export function AgentSidebar({
           MCP Инструменты
         </Button>
         <WeatherReportLink onOpen={onOpenMcpTools} />
+        <a
+          href="/local-chat"
+          className="flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 text-sm text-white/80 hover:bg-white/[0.06]"
+        >
+          <Cpu className="size-4" aria-hidden="true" />
+          Локальная LLM
+        </a>
         <a
           href="/rag-comparison"
           className="flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 text-sm text-white/80 hover:bg-white/[0.06]"

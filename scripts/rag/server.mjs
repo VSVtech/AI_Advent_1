@@ -14,6 +14,7 @@ import { LocalEvidenceVerifier } from './evidence.mjs';
 import { LocalRewriter, LocalReranker } from './models.mjs';
 import { retrieveCandidates } from './retrieval.mjs';
 import { isRagSearchOptions } from './relevance.mjs';
+import { LocalDialoguePlanner, validDialogueInput } from './dialogue.mjs';
 
 const json = (body, status = 200) =>
   Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -26,6 +27,7 @@ export function createRagHandler({
   reranker = new LocalReranker(),
   verifier = new LocalEvidenceVerifier(),
   groundingVerifier = createConfiguredGroundingVerifier(),
+  dialoguePlanner = new LocalDialoguePlanner(),
 } = {}) {
   let job = { status: 'idle', action: null, progress: null, error: null };
   const onProgress = (progress) => {
@@ -129,6 +131,16 @@ export function createRagHandler({
       }
       if (!body || typeof body !== 'object')
         return json({ error: 'Некорректный запрос.' }, 400);
+      if (body.action === 'prepare-dialogue') {
+        if (!validDialogueInput(body))
+          return json({ error: 'Некорректный контекст диалога.' }, 400);
+        return json(
+          await dialoguePlanner.prepare(
+            { current: body.current, context: body.context },
+            request.signal,
+          ),
+        );
+      }
       if (['verify-answer', 'answer-coverage'].includes(body.action)) {
         if (
           typeof body.query !== 'string' ||
@@ -201,6 +213,13 @@ export function createRagHandler({
         )
           return json({ error: 'Некорректная версия индекса.' }, 400);
         const index = await loadIndex(dataDir, requestedBuild, body.strategy);
+        const documents = await loadDocuments(
+          root,
+          await readJson(join(root, 'rag/corpus.json')),
+        );
+        const index_stale =
+          index.manifest.corpus_hash !==
+          hash(JSON.stringify(documents.map(documentSummary)));
         if (
           JSON.stringify(await provider.describe()) !==
           JSON.stringify(index.manifest.embedding)
@@ -217,11 +236,17 @@ export function createRagHandler({
             verifier,
             signal: request.signal,
           });
-          return json({ build_id: requestedBuild, hits, processing });
+          return json({
+            build_id: requestedBuild,
+            hits,
+            processing,
+            index_stale,
+          });
         }
         const [vector] = await provider.embed([body.query.trim()], 'query');
         return json({
           build_id: requestedBuild,
+          index_stale,
           hits: searchIndex(index, vector, topK),
         });
       }

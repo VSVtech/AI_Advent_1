@@ -32,7 +32,11 @@ export async function loadDocuments(root, manifest) {
     const rel = relative(realRoot, path);
     if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel))
       throw new Error('Документ находится вне корпуса.');
-    if (!['.md', '.txt', '.ts', '.tsx', '.js', '.mjs'].includes(extname(path)))
+    if (
+      !['.md', '.txt', '.ts', '.tsx', '.js', '.mjs', '.sh'].includes(
+        extname(path),
+      )
+    )
       throw new Error('Формат документа пока не поддерживается.');
     const buffer = await readFile(path);
     if (buffer.length > 2_000_000)

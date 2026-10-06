@@ -16,6 +16,10 @@ import {
 } from '@/scripts/rag/relevance.mjs';
 import type { ApiChatMessage } from '@/lib/chat-types';
 import { encodeEvent } from '@/lib/server/deepseek';
+import {
+  listContinuationSearch,
+  selectFollowupSources,
+} from '@/scripts/rag/grounding-flow.mjs';
 
 export class RagError extends Error {
   constructor(
@@ -32,6 +36,7 @@ export async function retrieveRagContext(
   signal: AbortSignal,
   buildId?: string,
   options?: RagSearchOptions,
+  completeLists = false,
 ): Promise<RagRetrieval> {
   if (options !== undefined && !isRagSearchOptions(options))
     throw new RagError(
@@ -82,7 +87,12 @@ export async function retrieveRagContext(
       'rag_unavailable',
       'Поиск по базе знаний не выполнен. Проверьте локальный сервис, Ollama и наличие индекса; для реранкера и проверки цитат выполните pnpm rag:models (нужны Qwen2.5:1.5b и Qwen2.5:7b). Ответ без RAG автоматически не подставляется.',
     );
-  let payload: { build_id?: unknown; hits?: unknown; processing?: unknown };
+  let payload: {
+    build_id?: unknown;
+    hits?: unknown;
+    processing?: unknown;
+    index_stale?: unknown;
+  };
   try {
     payload = (await response.json()) as typeof payload;
   } catch {
@@ -156,6 +166,9 @@ export async function retrieveRagContext(
       422,
     );
   const retrieval = restoreRagRetrieval({
+    ...(payload.index_stale !== undefined
+      ? { index_stale: payload.index_stale }
+      : {}),
     build_id: payload.build_id,
     strategy: RAG_STRATEGY,
     query,
@@ -190,6 +203,20 @@ export async function retrieveRagContext(
       'invalid_rag_response',
       'Источники из индекса не прошли проверку.',
     );
+  const continuation = completeLists ? listContinuationSearch(retrieval) : null;
+  if (continuation) {
+    retrieval.list_completion_attempted = true;
+    // Complete a visibly cut list before generation, with the same snapshot and
+    // thresholds. Each additional claim still passes the final citation gate.
+    const extra = await retrieveRagContext(
+      [{ role: 'user', content: continuation.query }],
+      signal,
+      retrieval.build_id,
+      continuation.options,
+    );
+    const sources = selectFollowupSources(retrieval, extra.sources);
+    if (sources.length) retrieval.followup = { ...extra, sources };
+  }
   return retrieval;
 }
 

@@ -1575,6 +1575,7 @@ export class Agent {
                   ? {
                       ragSearch: { ...this.config.ragSearch },
                       ragGrounding: true,
+                      ragDialogue: true,
                     }
                   : {}),
               }

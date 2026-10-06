@@ -137,6 +137,7 @@ describe('День 25: длинные диалоги с RAG и памятью з
         (request) =>
           request.useRag === true &&
           request.ragGrounding === true &&
+          request.ragDialogue === true &&
           request.ragSearch?.rerank === true,
       ),
     ).toBe(true);

@@ -2,6 +2,7 @@ import { groundingSources } from '@/scripts/rag/grounding.mjs';
 import type { RagRetrieval } from '@/lib/rag-context';
 
 export function RagSources({ retrieval }: { retrieval: RagRetrieval }) {
+  const allSources = groundingSources(retrieval);
   return (
     <details className="mt-3 min-w-0 rounded-lg border border-emerald-300/15 bg-emerald-300/[0.035] p-3 text-xs text-white/65">
       <summary className="cursor-pointer text-emerald-200">
@@ -9,13 +10,24 @@ export function RagSources({ retrieval }: { retrieval: RagRetrieval }) {
         {retrieval.processing
           ? `· Найдено: ${retrieval.processing.candidates} · После порога: ${retrieval.processing.passed}${retrieval.processing.options.verifyEvidence ? ` · С цитатами: ${retrieval.processing.verified}` : ''}${retrieval.processing.options.deduplicate ? ` · Без повторов: ${retrieval.processing.unique}` : ''}`
           : ''}{' '}
-        · Передано модели: {retrieval.sources.length} источников
+        · Передано модели: {allSources.length} источников
       </summary>
+      {retrieval.index_stale ? (
+        <p className="mt-2 text-amber-200">
+          Документы изменились после индексации. Обновите индекс в «Базе
+          знаний»; этот ответ использует сохранённую версию документов.
+        </p>
+      ) : null}
+      {retrieval.original_query ? (
+        <p className="mt-2 whitespace-pre-wrap break-words">
+          Вопрос к документам с учётом диалога: {retrieval.query}
+        </p>
+      ) : null}
       {retrieval.processing ? (
         <div className="mt-2 space-y-1 text-xs">
           <p>
             Кандидатов: {retrieval.processing.candidates} → прошли порог:{' '}
-            {retrieval.processing.passed} → в контексте:{' '}
+            {retrieval.processing.passed} → в первичном контексте:{' '}
             {retrieval.sources.length}.
           </p>
           {retrieval.processing.verified !== undefined ? (
@@ -83,7 +95,7 @@ export function RagSources({ retrieval }: { retrieval: RagRetrieval }) {
         </p>
       ) : null}
       <div className="mt-3 space-y-3">
-        {groundingSources(retrieval).map((source) => (
+        {allSources.map((source) => (
           <details
             key={source.id}
             className="rounded border border-white/10 p-2"

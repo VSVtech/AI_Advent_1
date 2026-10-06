@@ -1,4 +1,5 @@
 import {
+  MAX_GROUNDED_CLAIMS,
   resolveGroundedDraft,
   groundingRepairPrompt,
   groundingContextSources,
@@ -9,6 +10,43 @@ import {
   validateCoverage,
   validateGroundingChecks,
 } from './grounding-validation.mjs';
+
+export function listContinuationSearch(retrieval) {
+  const listQuestion =
+    /(?:компонент|перечисл|список|какие.*(?:процесс|сервис)|list|components)/iu.test(
+      retrieval.query,
+    );
+  const cutList = retrieval.sources.some(
+    (source) =>
+      /\.md$/iu.test(source.source) &&
+      /^\s*[-*]\s+/mu.test(source.text) &&
+      !/[.!?;`)}\]]\s*$/u.test(source.text),
+  );
+  return !retrieval.followup &&
+    !retrieval.list_completion_attempted &&
+    listQuestion &&
+    cutList
+    ? followupSearch(retrieval, { claims: [] }, [], [retrieval.query])
+    : null;
+}
+
+export function selectFollowupSources(retrieval, hits) {
+  const sources = [];
+  for (const hit of hits) {
+    if (
+      retrieval.sources.some((existing) => existing.chunk_id === hit.chunk_id)
+    )
+      continue;
+    const { embedding: _embedding, ...chunk } = hit;
+    const candidate = { ...chunk, id: `S${sources.length + 1}` };
+    if (
+      sources.length < 3 &&
+      JSON.stringify([...sources, candidate]).length <= 8000
+    )
+      sources.push(candidate);
+  }
+  return sources;
+}
 
 // One extra retrieval, at most three chunks, with the original thresholds.
 export function followupSearch(retrieval, draft, checks, missing) {
@@ -24,12 +62,35 @@ export function followupSearch(retrieval, draft, checks, missing) {
       ),
     ),
   ].slice(0, 5);
+  // When a list crosses chunk boundaries, a repeated generic question finds
+  // the same introduction. Use literal list-item names as additional anchors.
+  const listAnchors = missing.length
+    ? [
+        ...new Set(
+          retrieval.sources.flatMap((source) =>
+            [...source.text.matchAll(/^\s*[-*]\s+(.+)$/gmu)].map((match) => {
+              const line = match[1];
+              return (
+                /`([^`]{1,80})`/u.exec(line)?.[1] ??
+                /^[\p{L}\p{N}-]+/u.exec(line)?.[0] ??
+                ''
+              );
+            }),
+          ),
+        ),
+      ]
+        .filter(Boolean)
+        .slice(0, 8)
+    : [];
   return {
     query: [
-      symbols.join(' '),
-      ...missing,
-      ...insufficient.slice(0, 2).map((c) => c.text),
-      retrieval.query,
+      ...new Set([
+        symbols.join(' '),
+        ...missing,
+        ...insufficient.slice(0, 2).map((c) => c.text),
+        retrieval.query,
+        listAnchors.join(' '),
+      ]),
     ]
       .filter(Boolean)
       .join('\n')
@@ -108,7 +169,7 @@ export async function runGrounding({
         if (
           check.verdict === 'supported' &&
           !accepted.some((c) => c.text === claim.text) &&
-          accepted.length < 6
+          accepted.length < MAX_GROUNDED_CLAIMS
         )
           accepted.push(claim);
       }
@@ -165,6 +226,8 @@ export async function runGrounding({
     let searchError = false;
     if (
       search &&
+      !retrieval.followup &&
+      !retrieval.list_completion_attempted &&
       (checks.some((c) => c.verdict === 'insufficient') ||
         draft?.unknown ||
         (accepted.length > 0 && assessment.missing_parts.length > 0))

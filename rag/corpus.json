@@ -3,6 +3,8 @@
   "description": "Явный список документов дня 21. История чата, заметки и секреты не индексируются.",
   "files": [
     "README.md",
+    "start.sh",
+    "lib/task-memory.ts",
     "app/api/chat/route.ts",
     "app/api/files/route.ts",
     "app/api/mcp/route.ts",

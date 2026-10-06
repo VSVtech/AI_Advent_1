@@ -7,11 +7,16 @@ import {
   enforceGroundedResponse,
   unknownGroundedResponse,
 } from '@/lib/server/rag-grounding';
+import {
+  prepareDialogueQuestion,
+  renderDialogueContext,
+} from '@/lib/server/rag-dialogue';
 import { isRagSearchOptions } from '@/scripts/rag/relevance.mjs';
 import {
   RAG_INSTRUCTIONS,
   EMPTY_RAG_INSTRUCTIONS,
   withRagContext,
+  ragQuery,
   type RagRetrieval,
 } from '@/lib/rag-context';
 import {
@@ -291,6 +296,9 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (
+    (body.ragDialogue !== undefined &&
+      (typeof body.ragDialogue !== 'boolean' ||
+        (body.ragDialogue && body.ragGrounding !== true))) ||
     (body.ragGrounding !== undefined &&
       (typeof body.ragGrounding !== 'boolean' || body.useRag !== true)) ||
     (body.ragSearch !== undefined &&
@@ -484,8 +492,28 @@ export async function POST(request: Request): Promise<Response> {
   let retrieval: RagRetrieval | null = null;
   if (body.useRag) {
     try {
+      let searchMessages = body.messages;
+      if (body.ragDialogue) {
+        const plan = await prepareDialogueQuestion(
+          body.messages,
+          request.signal,
+        );
+        if (plan.intent === 'memory') {
+          return completedOutputResponse(
+            renderDialogueContext(body.messages, outputFormat),
+            { outputTokens: 0 },
+          );
+        }
+        searchMessages = [{ role: 'user', content: plan.question }];
+        // Retain user requirements in history; generation and coverage answer
+        // the same standalone documentation question that retrieval searched.
+        requestMessages = [
+          ...requestMessages,
+          { role: 'user', content: plan.question },
+        ];
+      }
       retrieval = await retrieveRagContext(
-        body.messages,
+        searchMessages,
         request.signal,
         body.ragBuildId,
         body.ragSearch ??
@@ -498,7 +526,9 @@ export async function POST(request: Request): Promise<Response> {
                 minSimilarity: 0.45,
               }
             : undefined),
+        grounding,
       );
+      if (body.ragDialogue) retrieval.original_query = ragQuery(body.messages);
       requestMessages = grounding
         ? [
             ...requestMessages.slice(0, -1),

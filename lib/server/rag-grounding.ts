@@ -2,6 +2,7 @@ import type { ChatOutputFormat, ChatStreamEvent } from '@/lib/chat-types';
 import type { RagRetrieval } from '@/lib/rag-context';
 import { readChatStream } from '@/lib/read-chat-stream';
 import {
+  MAX_GROUNDED_CLAIMS,
   renderGroundedAnswer,
   unknownAnswer,
 } from '@/scripts/rag/grounding.mjs';
@@ -69,10 +70,14 @@ export async function enforceGroundedResponse(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, query: retrieval.query, claims }),
-        // Six isolated checks, including the optional local thinking budget.
+        // One isolated check per claim, including the local thinking budget.
         signal: AbortSignal.any([
           signal,
-          AbortSignal.timeout(action === 'verify-answer' ? 1_450_000 : 245_000),
+          AbortSignal.timeout(
+            action === 'verify-answer'
+              ? MAX_GROUNDED_CLAIMS * 240_000 + 10_000
+              : 245_000,
+          ),
         ]),
       },
     );
@@ -103,6 +108,12 @@ export async function enforceGroundedResponse(
         );
         const sources: RagSource[] = [];
         for (const source of followup.sources) {
+          if (
+            retrieval.sources.some(
+              (existing) => existing.chunk_id === source.chunk_id,
+            )
+          )
+            continue;
           const candidate = { ...source, id: `S${sources.length + 1}` };
           if (JSON.stringify([...sources, candidate]).length <= 8000)
             sources.push(candidate);

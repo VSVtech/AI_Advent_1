@@ -8,7 +8,12 @@ import {
 import { readChatStream } from '@/lib/read-chat-stream';
 import type { ChatStreamEvent } from '@/lib/chat-types';
 import { restoreRagRetrieval } from '@/lib/rag-context';
-import { followupSearch, runGrounding } from '@/scripts/rag/grounding-flow.mjs';
+import {
+  followupSearch,
+  runGrounding,
+  listContinuationSearch,
+  selectFollowupSources,
+} from '@/scripts/rag/grounding-flow.mjs';
 import type { RagRetrieval } from '@/lib/rag-context';
 import {
   isGroundedDraft,
@@ -115,6 +120,87 @@ afterEach(() => {
 });
 
 describe('Grounded answer contract', () => {
+  it('accepts a seven-component answer while keeping a bounded claim count', () => {
+    expect(
+      isGroundedDraft({
+        unknown: false,
+        claims: Array.from({ length: 7 }, () => draft.claims[0]),
+      }),
+    ).toBe(true);
+    expect(
+      isGroundedDraft({
+        unknown: false,
+        claims: Array.from({ length: 11 }, () => draft.claims[0]),
+      }),
+    ).toBe(false);
+  });
+  it('loads continuation of a visibly cut list before generation and excludes duplicate chunks', () => {
+    const context = {
+      ...retrieval,
+      query: 'Каковы основные компоненты системы?',
+      sources: [
+        {
+          ...retrieval.sources[0],
+          text: '- Agent хранит историю.\n- Ollama выполняет локальные',
+        },
+      ],
+    };
+    const next = listContinuationSearch(context)!;
+    expect(next.query).toContain('Agent Ollama');
+    expect(next.options.minSimilarity).toBe(0.45);
+    expect(
+      listContinuationSearch({ ...context, query: 'Где хранится история?' }),
+    ).toBeNull();
+    const extra = { ...retrieval.sources[0], chunk_id: 'new-chunk' };
+    expect(selectFollowupSources(context, [context.sources[0], extra])).toEqual(
+      [{ ...extra, id: 'S1' }],
+    );
+  });
+  it('keeps list details accessible when preliminary evidence selected only the introduction', () => {
+    const introduction = 'Система состоит из следующих компонентов.';
+    const detail = '- Agent хранит историю диалога в localStorage.';
+    const source = {
+      ...retrieval.sources[0],
+      text: `${introduction}\n\n${detail}`,
+      evidence: [{ quote: introduction, question_part: query }],
+    };
+    const context = { ...retrieval, sources: [source] };
+    const quotes = groundingContextSources(context)[0].quotes;
+    const listQuote = quotes.find((q) => q.quote.includes('Agent'))!;
+    expect(listQuote).toBeDefined();
+    const resolved = resolveGroundedDraft(
+      {
+        unknown: false,
+        claims: [
+          {
+            text: 'Agent хранит историю в localStorage.',
+            citations: [{ source_id: 'S1', quote_id: listQuote.quote_id }],
+          },
+        ],
+      },
+      context,
+    );
+    expect(resolved.claims[0].citations[0].quote).toBe(detail);
+  });
+  it('adds literal list anchors to follow-up search without duplicating the original question', () => {
+    const context = {
+      ...retrieval,
+      sources: [
+        {
+          ...retrieval.sources[0],
+          text: '- Класс `Agent` хранит историю.\n- Ollama выполняет модели.',
+        },
+      ],
+    };
+    const next = followupSearch(
+      context,
+      { unknown: false, claims: [] },
+      [],
+      [query],
+    );
+    expect(next.query).toBe(`${query}\nAgent Ollama`);
+    expect(next.options.minSimilarity).toBe(0.45);
+  });
   it('binds every claim to literal quotes and derives metadata from retrieved chunks', () => {
     expect(validateGroundedDraft(draft, retrieval)).toEqual(draft);
     const result = supportedAnswer(draft, retrieval);

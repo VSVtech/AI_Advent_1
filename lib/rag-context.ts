@@ -26,6 +26,9 @@ export type RagSource = {
 };
 
 export type RagRetrieval = {
+  list_completion_attempted?: true;
+  original_query?: string;
+  index_stale?: boolean;
   build_id: string;
   strategy: typeof RAG_STRATEGY;
   query: string;
@@ -67,6 +70,18 @@ const shortString = (value: unknown, max: number): value is string =>
 // Used both for the SSE boundary and persisted history: never trust raw storage.
 export function restoreRagRetrieval(value: unknown): RagRetrieval | null {
   if (!record(value)) return null;
+  if (
+    value.list_completion_attempted !== undefined &&
+    value.list_completion_attempted !== true
+  )
+    return null;
+  if (
+    value.original_query !== undefined &&
+    !shortString(value.original_query, MAX_RAG_QUERY_CHARS)
+  )
+    return null;
+  if (value.index_stale !== undefined && typeof value.index_stale !== 'boolean')
+    return null;
   let processing: RagRetrieval['processing'];
   if (value.processing !== undefined) {
     const p = value.processing;
@@ -270,6 +285,15 @@ export function restoreRagRetrieval(value: unknown): RagRetrieval | null {
     build_id: value.build_id,
     strategy: RAG_STRATEGY,
     query: value.query,
+    ...(value.list_completion_attempted
+      ? { list_completion_attempted: true as const }
+      : {}),
+    ...(value.original_query !== undefined
+      ? { original_query: value.original_query as string }
+      : {}),
+    ...(value.index_stale !== undefined
+      ? { index_stale: value.index_stale as boolean }
+      : {}),
     sources,
     ...(processing ? { processing } : {}),
   };

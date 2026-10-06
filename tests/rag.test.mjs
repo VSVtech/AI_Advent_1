@@ -125,6 +125,16 @@ describe('RAG chunking', () => {
 });
 
 describe('RAG storage and pipeline', () => {
+  it('indexes an explicitly listed shell script without executing it', async () => {
+    const options = await fixture();
+    const script = '#!/bin/sh\nnode scripts/rag/server.mjs &\npnpm dev\n';
+    await writeFile(join(options.root, 'start.sh'), script);
+    const docs = await loadDocuments(options.root, { files: ['start.sh'] });
+    expect(docs).toHaveLength(1);
+    expect(docs[0].text).toBe(script);
+    expect(docs[0].source).toBe('start.sh');
+    expect(docs[0].sections[0].section).toBe('start.sh');
+  });
   it('rejects traversal and symlinks outside the corpus', async () => {
     const options = await fixture();
     await expect(

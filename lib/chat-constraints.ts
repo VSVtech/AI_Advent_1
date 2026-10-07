@@ -1,3 +1,4 @@
+import { isLocalModel, localModelName } from '@/lib/model-provider';
 import type { ApiChatMessage } from '@/lib/chat-types';
 
 export const DEFAULT_TARGET_OUTPUT_TOKENS = 500;
@@ -46,6 +47,7 @@ export function isValidModel(value: unknown): value is string {
 // Turns a raw DeepSeek model id ("deepseek-v4-flash") into a short,
 // human-friendly label ("V4 Flash") for compact UI like the header badge.
 export function formatModelLabel(id: string): string {
+  if (isLocalModel(id)) return `${localModelName(id)} (локальная)`;
   const withoutPrefix = id.replace(/^deepseek-/i, '');
   const parts = withoutPrefix.split('-').filter(Boolean);
 

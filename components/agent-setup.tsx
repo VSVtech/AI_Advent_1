@@ -1,6 +1,7 @@
 'use client';
+import { isLocalModel, LOCAL_CONTEXT_TOKENS } from '@/lib/model-provider';
 
-import { BrainCircuit, Database, Search, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { type SyntheticEvent, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -21,25 +22,6 @@ import {
   normalizeDialogueGoal,
 } from '@/lib/task-memory';
 
-const capabilities = [
-  {
-    icon: Search,
-    title: 'RAG при каждом вопросе',
-    description: 'Поиск, фильтрация и реранкинг по текущему индексу.',
-  },
-  {
-    icon: Database,
-    title: 'Источники обязательны',
-    description: 'Ответ проходит проверку цитат; слабый контекст даёт отказ.',
-  },
-  {
-    icon: BrainCircuit,
-    title: 'Память задачи',
-    description:
-      'Цель, ограничения, термины и уточнения сохраняются между ходами.',
-  },
-];
-
 export function AgentSetup({
   onCreate,
   onCancel,
@@ -47,7 +29,10 @@ export function AgentSetup({
   onCreate: (config: AgentConfig, name: string) => void;
   onCancel: () => void;
 }) {
-  const { models: availableModels, error: modelsError } = useAvailableModels();
+  const { models: availableModels, error: modelsError } =
+    useAvailableModels(true);
+  const [useRag, setUseRag] = useState(true);
+  const [useMemory, setUseMemory] = useState(true);
   const [name, setName] = useState('');
   const [goal, setGoal] = useState('');
   const [model, setModel] = useState(DEFAULT_MODEL);
@@ -63,7 +48,16 @@ export function AgentSetup({
       {
         ...createDefaultAgentConfig(),
         model: selectedModel,
-        taskGoal: normalizedGoal,
+        useRag,
+        useMemory,
+        taskGoal: useMemory ? normalizedGoal : '',
+        ...(isLocalModel(selectedModel)
+          ? {
+              contextWindowTokens: LOCAL_CONTEXT_TOKENS,
+              temperature: 0.3,
+              targetOutputTokens: null,
+            }
+          : {}),
       },
       name.trim() || `Агент · ${formatModelLabel(selectedModel)}`,
     );
@@ -78,10 +72,10 @@ export function AgentSetup({
           </span>
           <div className="min-w-0">
             <h1 className="truncate text-sm font-semibold tracking-[-0.01em] text-white">
-              Новый RAG-чат
+              Новый агент
             </h1>
             <p className="truncate text-xs text-white/40">
-              История, источники и память задачи уже включены
+              Выберите модель, базу знаний и память
             </p>
           </div>
         </div>
@@ -133,7 +127,7 @@ export function AgentSetup({
                   className="agent-setup-input"
                   title={modelsError ?? undefined}
                 >
-                  <SelectValue />
+                  <SelectValue>{formatModelLabel(selectedModel)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent className="format-menu">
                   {availableModels.map((id) => (
@@ -156,6 +150,7 @@ export function AgentSetup({
             </label>
             <Textarea
               id="agent-goal"
+              disabled={!useMemory}
               value={goal}
               maxLength={MAX_DIALOGUE_GOAL_LENGTH}
               placeholder="Например: подготовить план интеграции RAG в продуктовый чат"
@@ -169,24 +164,57 @@ export function AgentSetup({
         </section>
 
         <section
-          className="grid gap-3 sm:grid-cols-3"
+          className="grid gap-3 sm:grid-cols-2"
           aria-label="Возможности чата"
         >
-          {capabilities.map(({ icon: Icon, title, description }) => (
-            <article
-              key={title}
-              className="rounded-2xl border border-emerald-200/10 bg-emerald-300/[0.035] p-4"
-            >
-              <Icon className="size-5 text-emerald-200/80" aria-hidden="true" />
-              <h2 className="mt-3 text-sm font-semibold text-white/85">
-                {title}
-              </h2>
-              <p className="mt-1 text-xs leading-5 text-white/45">
-                {description}
-              </p>
-            </article>
-          ))}
+          <label
+            aria-label="Использовать RAG"
+            className="flex cursor-pointer items-start gap-3 rounded-2xl border border-emerald-200/10 bg-emerald-300/[0.035] p-4"
+          >
+            <input
+              type="checkbox"
+              checked={useRag}
+              onChange={(e) => setUseRag(e.target.checked)}
+              className="mt-1 size-4 accent-emerald-400"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-white/85">
+                Использовать RAG
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-white/45">
+                Поиск по базе знаний, источники и проверка цитат. При слабом
+                контексте — отказ.
+              </span>
+            </span>
+          </label>
+          <label
+            aria-label="Использовать память"
+            className="flex cursor-pointer items-start gap-3 rounded-2xl border border-emerald-200/10 bg-emerald-300/[0.035] p-4"
+          >
+            <input
+              type="checkbox"
+              checked={useMemory}
+              onChange={(e) => setUseMemory(e.target.checked)}
+              className="mt-1 size-4 accent-emerald-400"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-white/85">
+                Использовать память
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-white/45">
+                Цель, ограничения и термины извлекает выбранная модель:{' '}
+                {formatModelLabel(selectedModel)}. История чата сохраняется при
+                любом выборе.
+              </span>
+            </span>
+          </label>
         </section>
+        {isLocalModel(selectedModel) && (
+          <p className="system-prompt-hint">
+            Ответы и память обрабатываются локально через Ollama. RAG также
+            работает локально. Поддерживаются текстовые вложения.
+          </p>
+        )}
 
         {normalizedGoal === null ? (
           <p role="alert" className="system-prompt-error">

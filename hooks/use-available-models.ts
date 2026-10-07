@@ -1,45 +1,62 @@
 'use client';
-
 import { useEffect, useState } from 'react';
-
 import { DEFAULT_MODEL } from '@/lib/chat-constraints';
-import type { ModelsResponsePayload } from '@/lib/chat-types';
+import { LOCAL_MODEL_PREFIX } from '@/lib/model-provider';
 
-// Used by the agent setup screen's model picker, so the choice always
-// reflects the models this API token actually has access to rather than a
-// hardcoded list.
-export function useAvailableModels(): {
+// Comparisons keep their cloud-only catalog; agent creation opts into local models.
+export function useAvailableModels(includeLocal = false): {
   models: string[];
   error: string | null;
 } {
   const [models, setModels] = useState<string[]>([DEFAULT_MODEL]);
   const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
     const controller = new AbortController();
-
-    void fetch('/api/models', { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error('models_unavailable');
-        return response.json() as Promise<ModelsResponsePayload>;
-      })
-      .then((payload) => {
-        if (!Array.isArray(payload.models) || payload.models.length === 0) {
-          throw new Error('models_unavailable');
-        }
-        setModels(payload.models);
-        setError(null);
-      })
-      .catch((caughtError) => {
-        if (controller.signal.aborted) return;
-        setError(
-          'Не удалось загрузить список моделей. Доступна модель по умолчанию.',
+    async function load() {
+      const results = await Promise.allSettled([
+        fetch('/api/models', { signal: controller.signal }).then(async (r) => {
+          if (!r.ok) throw new Error();
+          const data = (await r.json()) as { models: string[] };
+          if (!Array.isArray(data.models)) throw new Error();
+          return data.models.filter((m) => typeof m === 'string');
+        }),
+        ...(includeLocal
+          ? [
+              fetch('/api/local-chat', { signal: controller.signal }).then(
+                async (r) => {
+                  if (!r.ok) throw new Error();
+                  const data = (await r.json()) as {
+                    models: Array<{ name: string }>;
+                  };
+                  if (!Array.isArray(data.models)) throw new Error();
+                  return data.models.map(
+                    (m) => `${LOCAL_MODEL_PREFIX}${m.name}`,
+                  );
+                },
+              ),
+            ]
+          : []),
+      ]);
+      if (controller.signal.aborted) return;
+      const cloud =
+        results[0].status === 'fulfilled' && results[0].value.length
+          ? results[0].value
+          : [DEFAULT_MODEL];
+      const local = results[1]?.status === 'fulfilled' ? results[1].value : [];
+      setModels([...new Set([...cloud, ...local])]);
+      const warnings = [];
+      if (results[0].status === 'rejected')
+        warnings.push(
+          'Список DeepSeek недоступен; показана модель по умолчанию.',
         );
-        void caughtError;
-      });
-
+      if (includeLocal && (results[1]?.status === 'rejected' || !local.length))
+        warnings.push(
+          'Локальные модели недоступны. Запустите pnpm rag:ollama и откройте настройки заново.',
+        );
+      setError(warnings.join(' ') || null);
+    }
+    void load();
     return () => controller.abort();
-  }, []);
-
+  }, [includeLocal]);
   return { models, error };
 }

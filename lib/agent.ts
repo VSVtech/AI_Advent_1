@@ -1,3 +1,4 @@
+import { isLocalModel } from '@/lib/model-provider';
 import {
   DEFAULT_RAG_SEARCH,
   isRagSearchOptions,
@@ -78,6 +79,7 @@ import {
 
 export interface AgentConfig {
   useRag?: boolean;
+  useMemory?: boolean;
   ragSearch?: RagSearchOptions;
   taskGoal?: string;
   profileMode: AgentProfileMode;
@@ -372,6 +374,7 @@ function buildUnifiedSummaryPrompt(
 export function createDefaultAgentConfig(): AgentConfig {
   return {
     useRag: true,
+    useMemory: true,
     ragSearch: { ...DEFAULT_RAG_SEARCH },
     taskGoal: '',
     profileMode: 'general',
@@ -1099,6 +1102,7 @@ export class Agent {
   }
 
   private async updateMemory(signal: AbortSignal): Promise<void> {
+    if (this.config.useMemory === false) return;
     const cutoffIndex = this.memoryCutoffMessageId
       ? this.messages.findIndex(
           (message) => message.id === this.memoryCutoffMessageId,
@@ -1120,6 +1124,7 @@ export class Agent {
     this.notify();
     try {
       const result = await this.memoryCurator.analyze({
+        model: this.config.model,
         shortTerm: factsWithConfiguredGoal(
           this.facts,
           this.config.taskGoal || this.taskState?.goal || '',
@@ -1352,6 +1357,12 @@ export class Agent {
   ): Promise<void> {
     const trimmed = content.trim();
     if ((!trimmed && files.length === 0) || this.isGenerating) return;
+    if (isLocalModel(this.config.model) && this.isTaskConversation()) {
+      this.error =
+        'Локальный агент поддерживает чат, RAG и память. Управление задачами пока недоступно.';
+      this.notify();
+      return;
+    }
     const reconciledState = reconcileTaskStateWithHistory(
       this.taskState,
       this.messages,
@@ -1533,26 +1544,29 @@ export class Agent {
           // Sliding Window deliberately discards older dialogue context;
           // Sticky Facts is the ten-message strategy that also sends facts.
           shortTerm:
+            this.config.useMemory === false ||
             this.config.contextStrategy === 'sliding-window'
               ? {}
               : factsWithConfiguredGoal(
                   this.facts,
                   this.config.taskGoal || this.taskState?.goal || '',
                 ),
-          working: this.workingMemory,
+          working: this.config.useMemory === false ? [] : this.workingMemory,
         },
         this.messages.filter((message) => message.id !== assistantMessage.id),
-        this.getActiveBranchSummary() ?? undefined,
+        this.config.useMemory === false
+          ? undefined
+          : (this.getActiveBranchSummary() ?? undefined),
       );
-      const longTermMemory = this.longTermMemory
-        .getEntries()
-        .flatMap(({ key, value, kind }) =>
-          kind ? [{ key, value, kind }] : [],
-        );
+      const longTermMemory = (
+        this.config.useMemory === false ? [] : this.longTermMemory.getEntries()
+      ).flatMap(({ key, value, kind }) => (kind ? [{ key, value, kind }] : []));
       const profile =
-        this.config.profileMode === 'general'
-          ? this.getGeneralProfile().trim()
-          : this.config.customProfile.trim();
+        this.config.useMemory === false
+          ? ''
+          : this.config.profileMode === 'general'
+            ? this.getGeneralProfile().trim()
+            : this.config.customProfile.trim();
 
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -1567,7 +1581,7 @@ export class Agent {
           targetOutputTokens: this.config.targetOutputTokens,
           temperature: this.config.temperature,
           model: this.config.model,
-          useMcpTools: true,
+          useMcpTools: !isLocalModel(this.config.model),
           ...(this.config.useRag
             ? {
                 useRag: true,
@@ -1595,12 +1609,12 @@ export class Agent {
           .json()
           .catch(() => null)) as ChatErrorPayload | null;
         throw new Error(
-          payload?.error.message ?? 'Не удалось получить ответ от DeepSeek.',
+          payload?.error.message ?? 'Не удалось получить ответ от модели.',
         );
       }
 
       if (!response.body) {
-        throw new Error('DeepSeek вернул пустой ответ. Попробуйте ещё раз.');
+        throw new Error('Модель вернула пустой ответ. Попробуйте ещё раз.');
       }
 
       let completed = false;
@@ -1719,7 +1733,7 @@ export class Agent {
         this.error =
           caughtError instanceof Error
             ? caughtError.message
-            : 'Не удалось получить ответ от DeepSeek.';
+            : 'Не удалось получить ответ от модели.';
         this.notify();
       }
     } finally {

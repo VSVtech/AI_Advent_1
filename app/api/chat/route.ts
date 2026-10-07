@@ -1,4 +1,10 @@
 import {
+  isLocalModel,
+  localModelName,
+  LOCAL_CONTEXT_TOKENS,
+} from '@/lib/model-provider';
+import { generateLocalChat, ollamaEndpoint } from '@/lib/server/ollama';
+import {
   GROUNDING_PROMPT,
   groundingContextSources,
   passesGroundingThreshold,
@@ -269,6 +275,12 @@ async function generateStructuredOutput({
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const origin = request.headers.get('origin');
+  if (origin && origin !== new URL(request.url).origin)
+    return jsonError(403, {
+      code: 'cross_origin',
+      message: 'Запрос с другого сайта запрещён.',
+    });
   let body: ChatRequest;
 
   try {
@@ -384,6 +396,36 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
+  const local = isLocalModel(model);
+  if (local) {
+    try {
+      ollamaEndpoint('/api/chat');
+      if (body.useRag) {
+        const url = new URL(
+          process.env.RAG_SERVICE_URL ?? 'http://127.0.0.1:18803/rag',
+        );
+        if (
+          url.protocol !== 'http:' ||
+          !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ||
+          url.username ||
+          url.password
+        )
+          throw new Error();
+      }
+    } catch {
+      return jsonError(400, {
+        code: 'local_only',
+        message:
+          'Для локального агента Ollama и RAG должны работать на loopback.',
+      });
+    }
+    if (body.taskState || body.useMcpTools)
+      return jsonError(400, {
+        code: 'local_tools_unsupported',
+        message:
+          'Локальный агент поддерживает чат, RAG и память; MCP и управление задачами пока недоступны.',
+      });
+  }
   const hasImages = body.messages.some(
     (message) =>
       Array.isArray(message.content) &&
@@ -482,7 +524,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
 
-  if (!apiKey && !grounding) {
+  if (!local && !apiKey && !grounding) {
     return jsonError(500, {
       code: 'configuration_error',
       message: 'DEEPSEEK_API_KEY не настроен. Добавьте токен в .env.local.',
@@ -578,13 +620,58 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  if (!apiKey)
+  if (!local && !apiKey)
     return jsonError(500, {
       code: 'configuration_error',
       message: 'DEEPSEEK_API_KEY не настроен. Добавьте токен в .env.local.',
     });
 
   const generate = async (): Promise<Response> => {
+    if (local) {
+      const limit = Math.min(contextWindowTokens, LOCAL_CONTEXT_TOKENS);
+      const outputLimit = Math.min(
+        8192,
+        grounding ? Math.max(4096, maxOutputTokens) : maxOutputTokens,
+      );
+      const overflow = contextWindowError({
+        contextWindowTokens: limit - outputLimit,
+        messages: requestMessages,
+        systemPrompt,
+      });
+      if (overflow) return overflow;
+      const localMessages = requestMessages.map((m) => ({
+        role: m.role,
+        content:
+          typeof m.content === 'string'
+            ? m.content
+            : m.content
+                .filter((p) => p.type === 'input_text')
+                .map((p) => p.text)
+                .join('\n'),
+      }));
+      const result = await generateLocalChat({
+        model: localModelName(model),
+        messages: [
+          ...(systemPrompt
+            ? [{ role: 'system' as const, content: systemPrompt }]
+            : []),
+          ...localMessages,
+        ],
+        signal: request.signal,
+        format: generationFormat,
+        temperature,
+        contextTokens: limit,
+        maxOutputTokens: outputLimit,
+      });
+      if (!result.ok) {
+        const error = (await result.json()) as { error: string };
+        return jsonError(result.status, {
+          code: 'local_unavailable',
+          message: error.error,
+        });
+      }
+      return result;
+    }
     const mcpConnection =
       body.useMcpTools && !grounding
         ? await connectAgentMcp(request.signal)
@@ -594,7 +681,7 @@ export async function POST(request: Request): Promise<Response> {
     if (taskState && systemPrompt) {
       return withMcpConnection(mcpConnection, () =>
         generateInvariantSafeOutput({
-          apiKey,
+          apiKey: apiKey!,
           contextWindowTokens,
           format: generationFormat,
           maxOutputTokens,
@@ -612,7 +699,7 @@ export async function POST(request: Request): Promise<Response> {
     if (isStructuredOutputFormat(generationFormat)) {
       return withMcpConnection(mcpConnection, () =>
         generateStructuredOutput({
-          apiKey,
+          apiKey: apiKey!,
           contextWindowTokens,
           format: generationFormat,
           maxOutputTokens,
@@ -629,7 +716,7 @@ export async function POST(request: Request): Promise<Response> {
     if (mcpConnection) {
       return withMcpConnection(mcpConnection, async () => {
         const result = await generateWithMcpTools({
-          apiKey,
+          apiKey: apiKey!,
           connection: mcpConnection,
           contextWindowTokens,
           maxOutputTokens,

@@ -1,4 +1,5 @@
 'use client';
+import { isLocalModel } from '@/lib/model-provider';
 import { RagSources } from '@/components/rag-sources';
 import { TaskMemoryCard } from '@/components/task-memory-card';
 
@@ -406,7 +407,11 @@ export function AgentChat({
                 {agent.name}
               </h1>
               <p className="truncate text-xs text-white/40">
-                RAG с цитатами · история сохраняется · память задачи
+                {agent.config.useRag ? 'RAG с цитатами' : 'Без RAG'} · история
+                сохраняется ·{' '}
+                {agent.config.useMemory === false
+                  ? 'память выключена'
+                  : 'память задачи'}
               </p>
             </div>
           </div>
@@ -428,8 +433,12 @@ export function AgentChat({
                 {formatModelLabel(agent.config.model)}
               </span>
             </Badge>
-            <AgentMemoryPanelSheet agent={agent} />
-            <AgentMemoryDialog agent={agent} isGenerating={isGenerating} />
+            {agent.config.useMemory !== false && (
+              <AgentMemoryPanelSheet agent={agent} />
+            )}
+            {agent.config.useMemory !== false && (
+              <AgentMemoryDialog agent={agent} isGenerating={isGenerating} />
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -444,7 +453,7 @@ export function AgentChat({
           </div>
         </header>
 
-        <TaskMemoryCard agent={agent} />
+        {agent.config.useMemory !== false && <TaskMemoryCard agent={agent} />}
 
         {agent.config.contextStrategy === 'branching' ? (
           <section
@@ -608,9 +617,9 @@ export function AgentChat({
                   О чём поговорим?
                 </h2>
                 <p className="mx-auto max-w-md text-sm leading-6 text-white/45">
-                  Каждый вопрос проходит поиск по базе знаний. Ответ появится
-                  после проверки цитат и всегда покажет использованные
-                  источники.
+                  {agent.config.useRag
+                    ? 'Каждый вопрос проходит поиск по базе знаний. Ответ появится после проверки цитат и покажет источники.'
+                    : 'Задайте вопрос выбранной модели. История диалога сохраняется в браузере.'}
                 </p>
               </div>
 
@@ -877,7 +886,7 @@ export function AgentChat({
           <p className="composer-hint">
             {taskPaused
               ? 'Задача приостановлена: текущий этап и шаг сохранены.'
-              : `Enter — отправить · Shift + Enter — новая строка · до 5 файлов · вложения отправляются в DeepSeek${
+              : `Enter — отправить · Shift + Enter — новая строка · до 5 файлов · ${isLocalModel(agent.config.model) ? 'текстовые вложения обрабатываются локально' : 'вложения отправляются в DeepSeek'}${
                   taskState?.awaitingConfirmation && nextTaskPhase
                     ? ` · подтвердите результат в чате для перехода к ${nextTaskPhase}`
                     : ''
@@ -889,7 +898,7 @@ export function AgentChat({
           {isGenerating ? 'Агент отвечает' : ''}
         </output>
       </div>
-      <AgentMemoryPanel agent={agent} />
+      {agent.config.useMemory !== false && <AgentMemoryPanel agent={agent} />}
     </div>
   );
 }

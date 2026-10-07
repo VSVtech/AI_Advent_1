@@ -157,6 +157,9 @@ function restoreConfig(value: unknown): AgentConfig | null {
   if (value.useRag !== undefined && typeof value.useRag !== 'boolean')
     return null;
 
+  if (value.useMemory !== undefined && typeof value.useMemory !== 'boolean')
+    return null;
+
   // Sessions written before the artificial limit was introduced use the
   // model's full context window and remain loadable without a data migration.
   const contextWindowTokens =
@@ -206,7 +209,8 @@ function restoreConfig(value: unknown): AgentConfig | null {
 
   return {
     profileMode,
-    useRag: true,
+    useRag: value.useRag ?? true,
+    useMemory: value.useMemory ?? true,
     ragSearch: isRagSearchOptions(value.ragSearch)
       ? { ...value.ragSearch }
       : { ...DEFAULT_RAG_SEARCH },

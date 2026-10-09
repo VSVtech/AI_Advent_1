@@ -98,7 +98,7 @@ export function AgentSetup({
             </p>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid min-w-0 gap-4">
             <div className="agent-setup-field">
               <label className="format-label" htmlFor="agent-name">
                 Название
@@ -124,14 +124,20 @@ export function AgentSetup({
               >
                 <SelectTrigger
                   id="agent-model"
-                  className="agent-setup-input"
+                  className="agent-setup-input w-full min-w-0 whitespace-normal data-[size=default]:h-auto min-h-9 *:data-[slot=select-value]:line-clamp-none"
                   title={modelsError ?? undefined}
                 >
-                  <SelectValue>{formatModelLabel(selectedModel)}</SelectValue>
+                  <SelectValue className="min-w-0 break-words whitespace-normal">
+                    {formatModelLabel(selectedModel)}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent className="format-menu">
                   {availableModels.map((id) => (
-                    <SelectItem key={id} value={id} className="format-option">
+                    <SelectItem
+                      key={id}
+                      value={id}
+                      className="format-option [&>span]:min-w-0 [&>span]:shrink [&>span]:whitespace-normal [&>span]:break-words"
+                    >
                       {formatModelLabel(id)}
                     </SelectItem>
                   ))}

@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "task": "Короткие ответы разработчику по документации с проверяемыми ссылками на цитаты",
+  "cases": [
+    {
+      "id": "dev-port",
+      "split": "dev",
+      "question": "Какой порт по умолчанию использует локальный RAG-сервис?",
+      "expected": ["18803"],
+      "source": "README.md"
+    },
+    {
+      "id": "dev-start",
+      "split": "dev",
+      "question": "Какой командой pnpm запускается локальный RAG-сервис?",
+      "expected": ["pnpm(?: run)? rag:server"],
+      "source": "README.md"
+    },
+    {
+      "id": "dev-embedding",
+      "split": "dev",
+      "question": "Какая модель используется для генерации эмбеддингов документов?",
+      "expected": ["qwen3-embedding:0\\.6b"],
+      "source": "README.md"
+    },
+    {
+      "id": "dev-unknown",
+      "split": "dev",
+      "question": "Какой SLA гарантирует восстановление удалённого агента?",
+      "unknown": true
+    },
+    {
+      "id": "test-history",
+      "split": "test",
+      "question": "Где сохраняется история агента и восстанавливается ли она после перезагрузки страницы?",
+      "expected": ["localStorage|локальн.{0,35}хранилищ", "восстан|сохраня"],
+      "source": "README.md"
+    },
+    {
+      "id": "test-secret",
+      "split": "test",
+      "question": "Передаётся ли API-токен DeepSeek в браузер? Где он используется?",
+      "expected": ["не переда|не отправ|не попада", "сервер"],
+      "source": "README.md"
+    },
+    {
+      "id": "test-followup",
+      "split": "test",
+      "question": "Как запустить RAG-сервис с выбранным ранее менеджером пакетов?",
+      "history": [
+        {
+          "role": "user",
+          "content": "Используем macOS и pnpm. Готовим инструкцию запуска RAG-сервиса."
+        }
+      ],
+      "expected": ["pnpm(?: run)? rag:server"],
+      "source": "README.md"
+    },
+    {
+      "id": "test-unknown",
+      "split": "test",
+      "question": "Какова гарантированная стоимость восстановления одного удалённого агента в рублях?",
+      "unknown": true
+    }
+  ]
+}

@@ -5,8 +5,14 @@ import {
 } from '@/lib/model-provider';
 import { generateLocalChat, ollamaEndpoint } from '@/lib/server/ollama';
 import {
+  isLocalRagProfile,
+  LOCAL_RAG_PROFILES,
+  localRagPrompt,
+  localRagFormat,
+  localRagContext,
+} from '@/lib/local-rag-profile';
+import {
   GROUNDING_PROMPT,
-  groundingContextSources,
   passesGroundingThreshold,
 } from '@/scripts/rag/grounding.mjs';
 import {
@@ -397,6 +403,15 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const local = isLocalModel(model);
+  if (
+    body.localRagProfile !== undefined &&
+    !isLocalRagProfile(body.localRagProfile)
+  )
+    return jsonError(400, {
+      code: 'invalid_local_profile',
+      message: 'Неизвестный профиль локальной модели.',
+    });
+  const compactRag = local && grounding && body.localRagProfile === 'compact';
   if (local) {
     try {
       ollamaEndpoint('/api/chat');
@@ -576,14 +591,18 @@ export async function POST(request: Request): Promise<Response> {
             ...requestMessages.slice(0, -1),
             {
               role: 'user',
-              content: `RAG_CONTEXT_JSON\n${JSON.stringify(groundingContextSources(retrieval))}`,
+              content: `RAG_CONTEXT_JSON\n${JSON.stringify(localRagContext(retrieval, compactRag ? 'compact' : 'baseline'))}`,
             },
             requestMessages.at(-1)!,
           ]
         : withRagContext(requestMessages, retrieval);
       systemPrompt = [
         systemPrompt,
-        grounding ? GROUNDING_PROMPT : RAG_INSTRUCTIONS,
+        grounding
+          ? compactRag
+            ? localRagPrompt('compact')
+            : GROUNDING_PROMPT
+          : RAG_INSTRUCTIONS,
         ...(retrieval.sources.length === 0 ? [EMPTY_RAG_INSTRUCTIONS] : []),
       ]
         .filter(Boolean)
@@ -628,11 +647,22 @@ export async function POST(request: Request): Promise<Response> {
 
   const generate = async (): Promise<Response> => {
     if (local) {
-      const limit = Math.min(contextWindowTokens, LOCAL_CONTEXT_TOKENS);
-      const outputLimit = Math.min(
-        8192,
-        grounding ? Math.max(4096, maxOutputTokens) : maxOutputTokens,
+      const settings = LOCAL_RAG_PROFILES.compact;
+      const limit = Math.min(
+        body.contextWindowTokens === undefined && compactRag
+          ? settings.contextTokens
+          : contextWindowTokens,
+        LOCAL_CONTEXT_TOKENS,
       );
+      const outputLimit =
+        body.maxOutputTokens !== undefined
+          ? Math.min(8192, maxOutputTokens)
+          : compactRag
+            ? Math.min(maxOutputTokens, settings.maxOutputTokens)
+            : Math.min(
+                8192,
+                grounding ? Math.max(4096, maxOutputTokens) : maxOutputTokens,
+              );
       const overflow = contextWindowError({
         contextWindowTokens: limit - outputLimit,
         messages: requestMessages,
@@ -658,8 +688,11 @@ export async function POST(request: Request): Promise<Response> {
           ...localMessages,
         ],
         signal: request.signal,
-        format: generationFormat,
-        temperature,
+        format: compactRag ? localRagFormat('compact') : generationFormat,
+        temperature:
+          compactRag && body.temperature === undefined
+            ? settings.temperature
+            : temperature,
         contextTokens: limit,
         maxOutputTokens: outputLimit,
       });

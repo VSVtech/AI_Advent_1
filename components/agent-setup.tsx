@@ -1,5 +1,6 @@
 'use client';
 import { isLocalModel, LOCAL_CONTEXT_TOKENS } from '@/lib/model-provider';
+import { LOCAL_RAG_PROFILES } from '@/lib/local-rag-profile';
 
 import { Sparkles } from 'lucide-react';
 import { type SyntheticEvent, useState } from 'react';
@@ -16,7 +17,17 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useAvailableModels } from '@/hooks/use-available-models';
 import { createDefaultAgentConfig, type AgentConfig } from '@/lib/agent';
-import { DEFAULT_MODEL, formatModelLabel } from '@/lib/chat-constraints';
+import {
+  DEFAULT_MODEL,
+  formatModelLabel,
+  isValidTemperature,
+  isValidContextWindowTokens,
+  isValidMaxOutputTokens,
+  MIN_TEMPERATURE,
+  MAX_TEMPERATURE,
+  MIN_CONTEXT_WINDOW_TOKENS,
+  MIN_TARGET_OUTPUT_TOKENS,
+} from '@/lib/chat-constraints';
 import {
   MAX_DIALOGUE_GOAL_LENGTH,
   normalizeDialogueGoal,
@@ -33,6 +44,16 @@ export function AgentSetup({
     useAvailableModels(true);
   const [useRag, setUseRag] = useState(true);
   const [useMemory, setUseMemory] = useState(true);
+  const [compactRag, setCompactRag] = useState(true);
+  const [temperature, setTemperature] = useState(
+    String(LOCAL_RAG_PROFILES.compact.temperature),
+  );
+  const [contextTokens, setContextTokens] = useState(
+    String(LOCAL_RAG_PROFILES.compact.contextTokens),
+  );
+  const [outputTokens, setOutputTokens] = useState(
+    String(LOCAL_RAG_PROFILES.compact.maxOutputTokens),
+  );
   const [name, setName] = useState('');
   const [goal, setGoal] = useState('');
   const [model, setModel] = useState(DEFAULT_MODEL);
@@ -40,10 +61,20 @@ export function AgentSetup({
     ? model
     : (availableModels[0] ?? DEFAULT_MODEL);
   const normalizedGoal = normalizeDialogueGoal(goal);
+  const local = isLocalModel(selectedModel);
+  const validLocalSettings =
+    !local ||
+    (temperature.trim() !== '' &&
+      isValidTemperature(Number(temperature)) &&
+      isValidContextWindowTokens(Number(contextTokens)) &&
+      Number(contextTokens) <= LOCAL_CONTEXT_TOKENS &&
+      isValidMaxOutputTokens(Number(outputTokens)) &&
+      Number(outputTokens) <= 8192 &&
+      Number(outputTokens) < Number(contextTokens));
 
   const handleSubmit = (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (normalizedGoal === null) return;
+    if (normalizedGoal === null || !validLocalSettings) return;
     onCreate(
       {
         ...createDefaultAgentConfig(),
@@ -53,8 +84,10 @@ export function AgentSetup({
         taskGoal: useMemory ? normalizedGoal : '',
         ...(isLocalModel(selectedModel)
           ? {
-              contextWindowTokens: LOCAL_CONTEXT_TOKENS,
-              temperature: 0.3,
+              localRagProfile: useRag && compactRag ? 'compact' : 'baseline',
+              contextWindowTokens: Number(contextTokens),
+              temperature: Number(temperature),
+              maxOutputTokens: Number(outputTokens),
               targetOutputTokens: null,
             }
           : {}),
@@ -149,6 +182,101 @@ export function AgentSetup({
             </div>
           </div>
 
+          {local ? (
+            <fieldset className="grid min-w-0 gap-3 rounded-xl border border-white/10 p-3">
+              <legend className="px-1 text-sm text-white/75">
+                Параметры локальной модели
+              </legend>
+              <div className="grid min-w-0 gap-3 sm:grid-cols-3">
+                <div className="agent-setup-field min-w-0">
+                  <label className="format-label" htmlFor="local-temperature">
+                    Температура
+                  </label>
+                  <Input
+                    id="local-temperature"
+                    type="number"
+                    min={MIN_TEMPERATURE}
+                    max={MAX_TEMPERATURE}
+                    step="any"
+                    required
+                    value={temperature}
+                    onChange={(e) => setTemperature(e.target.value)}
+                    className="agent-setup-input w-full min-w-0"
+                  />
+                  <p className="system-prompt-hint">
+                    0–2. Ниже — более предсказуемые ответы.
+                  </p>
+                </div>
+                <div className="agent-setup-field min-w-0">
+                  <label className="format-label" htmlFor="local-context">
+                    Контекст, токенов
+                  </label>
+                  <Input
+                    id="local-context"
+                    type="number"
+                    min={MIN_CONTEXT_WINDOW_TOKENS}
+                    max={LOCAL_CONTEXT_TOKENS}
+                    step="1"
+                    required
+                    value={contextTokens}
+                    onChange={(e) => setContextTokens(e.target.value)}
+                    className="agent-setup-input w-full min-w-0"
+                  />
+                  <p className="system-prompt-hint">
+                    До 32 768: история, документы и ответ.
+                  </p>
+                </div>
+                <div className="agent-setup-field min-w-0">
+                  <label className="format-label" htmlFor="local-output">
+                    Максимум ответа, токенов
+                  </label>
+                  <Input
+                    id="local-output"
+                    type="number"
+                    min={MIN_TARGET_OUTPUT_TOKENS}
+                    max={8192}
+                    step="1"
+                    required
+                    value={outputTokens}
+                    onChange={(e) => setOutputTokens(e.target.value)}
+                    className="agent-setup-input w-full min-w-0"
+                  />
+                  <p className="system-prompt-hint">
+                    50–8192, меньше размера контекста.
+                  </p>
+                </div>
+              </div>
+              {!validLocalSettings ? (
+                <p role="alert" className="system-prompt-error">
+                  Проверьте диапазоны: температура 0–2, контекст 100–32 768,
+                  ответ 50–8192 токена и меньше контекста.
+                </p>
+              ) : null}
+            </fieldset>
+          ) : null}
+
+          {local && useRag ? (
+            <label
+              className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 p-3"
+              aria-label="Использовать шаблон ответа для базы знаний"
+            >
+              <input
+                type="checkbox"
+                checked={compactRag}
+                onChange={(event) => setCompactRag(event.target.checked)}
+                className="mt-1 size-4 accent-emerald-400"
+              />
+              <span className="text-sm text-white/75">
+                Использовать шаблон ответа для базы знаний
+                <span className="mt-1 block text-xs leading-5 text-white/45">
+                  Короткие факты, строгая схема цитат и явные ссылки на
+                  источники. Без галочки — стандартный RAG-шаблон. Числовые
+                  настройки не меняются.
+                </span>
+              </span>
+            </label>
+          ) : null}
+
           <div className="agent-setup-field">
             <label className="format-label" htmlFor="agent-goal">
               Цель диалога{' '}
@@ -233,7 +361,10 @@ export function AgentSetup({
           <Button type="button" variant="ghost" onClick={onCancel}>
             Отмена
           </Button>
-          <Button type="submit" disabled={normalizedGoal === null}>
+          <Button
+            type="submit"
+            disabled={normalizedGoal === null || !validLocalSettings}
+          >
             Создать чат
           </Button>
         </div>

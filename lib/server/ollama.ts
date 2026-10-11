@@ -76,7 +76,7 @@ export async function generateLocalChat({
   model: string;
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
   signal: AbortSignal;
-  format?: string;
+  format?: string | Record<string, unknown>;
   temperature?: number;
   contextTokens?: number;
   maxOutputTokens?: number;
@@ -101,7 +101,7 @@ export async function generateLocalChat({
         messages: messages,
         stream: true,
         think: false,
-        ...(format === 'json' ? { format: 'json' } : {}),
+        ...(format === 'json' || typeof format === 'object' ? { format } : {}),
         options: {
           temperature,
           num_ctx: contextTokens,

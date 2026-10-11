@@ -1,4 +1,5 @@
 import { isLocalModel } from '@/lib/model-provider';
+import type { LocalRagProfile } from '@/lib/local-rag-profile';
 import {
   DEFAULT_RAG_SEARCH,
   isRagSearchOptions,
@@ -78,6 +79,8 @@ import {
 } from '@/lib/weather-jobs';
 
 export interface AgentConfig {
+  localRagProfile?: LocalRagProfile;
+  maxOutputTokens?: number;
   useRag?: boolean;
   useMemory?: boolean;
   ragSearch?: RagSearchOptions;
@@ -1125,6 +1128,8 @@ export class Agent {
     try {
       const result = await this.memoryCurator.analyze({
         model: this.config.model,
+        localRagProfile: this.config.localRagProfile,
+        contextWindowTokens: this.config.contextWindowTokens,
         shortTerm: factsWithConfiguredGoal(
           this.facts,
           this.config.taskGoal || this.taskState?.goal || '',
@@ -1579,9 +1584,15 @@ export class Agent {
           format: this.config.outputFormat,
           contextWindowTokens: this.config.contextWindowTokens,
           targetOutputTokens: this.config.targetOutputTokens,
+          ...(this.config.maxOutputTokens !== undefined
+            ? { maxOutputTokens: this.config.maxOutputTokens }
+            : {}),
           temperature: this.config.temperature,
           model: this.config.model,
           useMcpTools: !isLocalModel(this.config.model),
+          ...(isLocalModel(this.config.model)
+            ? { localRagProfile: this.config.localRagProfile ?? 'baseline' }
+            : {}),
           ...(this.config.useRag
             ? {
                 useRag: true,

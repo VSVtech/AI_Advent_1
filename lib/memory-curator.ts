@@ -1,3 +1,8 @@
+import { isLocalModel, LOCAL_CONTEXT_TOKENS } from '@/lib/model-provider';
+import {
+  LOCAL_RAG_PROFILES,
+  type LocalRagProfile,
+} from '@/lib/local-rag-profile';
 import {
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   DEFAULT_MODEL,
@@ -155,17 +160,30 @@ export function parseMemoryCuration(value: unknown): MemoryCuration | null {
 export class MemoryCurator {
   async analyze({
     model = DEFAULT_MODEL,
+    localRagProfile,
+    contextWindowTokens,
     shortTerm,
     longTerm,
     recentDialogue,
     signal,
   }: {
     model?: string;
+    localRagProfile?: LocalRagProfile;
+    contextWindowTokens?: number;
     shortTerm: MemoryFacts;
     longTerm: MemoryEntry[];
     recentDialogue: string;
     signal: AbortSignal;
   }): Promise<MemoryCuration> {
+    const memoryContextTokens = isLocalModel(model)
+      ? Math.min(
+          contextWindowTokens ??
+            (localRagProfile === 'compact'
+              ? LOCAL_RAG_PROFILES.compact.contextTokens
+              : LOCAL_CONTEXT_TOKENS),
+          LOCAL_CONTEXT_TOKENS,
+        )
+      : DEFAULT_CONTEXT_WINDOW_TOKENS;
     const existingLongTerm = longTerm
       .slice(-30)
       .flatMap(({ key, value, kind }) => (kind ? [{ key, value, kind }] : []));
@@ -189,9 +207,11 @@ export class MemoryCurator {
             ? { longTermMemory: existingLongTerm }
             : {}),
           format: 'json',
-          contextWindowTokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
+          contextWindowTokens: memoryContextTokens,
           targetOutputTokens: null,
-          maxOutputTokens: 2400,
+          maxOutputTokens: isLocalModel(model)
+            ? Math.min(2400, Math.max(50, Math.floor(memoryContextTokens / 4)))
+            : 2400,
           temperature: 0.2,
           model,
           useSystemPrompt: false,

@@ -113,9 +113,16 @@ describe('unified local and cloud agents', () => {
     expect(models).toEqual(['deepseek-v4-pro', 'deepseek-v4-pro']);
     agent.dispose();
   });
-  it.each([false, true])(
-    'generates locally with RAG=%s and no cloud key or cloud calls',
-    async (useRag) => {
+  it.each([
+    [false, 'baseline', false],
+    [true, 'baseline', false],
+    [true, 'compact', false],
+    [false, 'baseline', true],
+    [true, 'baseline', true],
+    [true, 'compact', true],
+  ] as const)(
+    'generates locally with RAG=%s / profile=%s / custom settings=%s and no cloud calls',
+    async (useRag, localRagProfile, custom) => {
       vi.stubEnv('DEEPSEEK_API_KEY', '');
       const quote = 'RAG-сервис запускается командой pnpm rag:server.';
       const actions: string[] = [];
@@ -161,8 +168,26 @@ describe('unified local and cloud agents', () => {
             return Response.json({ capabilities: ['completion'] });
           expect(u.pathname).toBe('/api/chat');
           expect(b.model).toBe('qwen2.5:7b');
+          if (custom)
+            expect(b.options).toMatchObject({
+              temperature: 0.7,
+              num_ctx: 24576,
+              num_predict: 3072,
+            });
           if (useRag) {
-            expect(b.format).toBe('json');
+            if (localRagProfile === 'compact') {
+              expect(b.format).toMatchObject({
+                type: 'object',
+                required: ['unknown', 'claims'],
+              });
+              if (!custom)
+                expect(b.options).toMatchObject({
+                  temperature: 0,
+                  num_ctx: 16384,
+                  num_predict: 1536,
+                });
+              expect(b.messages[0].content).toContain('вопросы разработчика');
+            } else expect(b.format).toBe('json');
             expect(JSON.stringify(b.messages)).toContain(quote);
           }
           const content = useRag
@@ -191,6 +216,15 @@ describe('unified local and cloud agents', () => {
           method: 'POST',
           body: JSON.stringify({
             model,
+            localRagProfile,
+            ...(custom
+              ? {
+                  temperature: 0.7,
+                  contextWindowTokens: 24576,
+                  maxOutputTokens: 3072,
+                }
+              : {}),
+            targetOutputTokens: null,
             messages: [{ role: 'user', content: 'Как запустить RAG-сервис?' }],
             useRag,
             ...(useRag ? { ragGrounding: true, ragDialogue: true } : {}),

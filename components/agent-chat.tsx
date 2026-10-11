@@ -412,6 +412,11 @@ export function AgentChat({
                 {agent.config.useMemory === false
                   ? 'память выключена'
                   : 'память задачи'}
+                {isLocalModel(agent.config.model) &&
+                agent.config.useRag &&
+                agent.config.localRagProfile === 'compact'
+                  ? ' · шаблон для базы знаний'
+                  : ''}
               </p>
             </div>
           </div>

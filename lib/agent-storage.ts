@@ -14,6 +14,7 @@ import {
   isValidModel,
   isValidTargetOutputTokensOrNull,
   isValidTemperature,
+  isValidMaxOutputTokens,
 } from '@/lib/chat-constraints';
 import {
   classifyAttachment,
@@ -152,6 +153,17 @@ function restoreAttachment(value: unknown): ChatAttachment | null {
 
 function restoreConfig(value: unknown): AgentConfig | null {
   if (!isRecord(value)) return null;
+  if (
+    value.maxOutputTokens !== undefined &&
+    !isValidMaxOutputTokens(value.maxOutputTokens)
+  )
+    return null;
+  if (
+    value.localRagProfile !== undefined &&
+    value.localRagProfile !== 'baseline' &&
+    value.localRagProfile !== 'compact'
+  )
+    return null;
   if (value.ragSearch !== undefined && !isRagSearchOptions(value.ragSearch))
     return null;
   if (value.useRag !== undefined && typeof value.useRag !== 'boolean')
@@ -211,6 +223,9 @@ function restoreConfig(value: unknown): AgentConfig | null {
     profileMode,
     useRag: value.useRag ?? true,
     useMemory: value.useMemory ?? true,
+    ...(value.localRagProfile !== undefined
+      ? { localRagProfile: value.localRagProfile }
+      : {}),
     ragSearch: isRagSearchOptions(value.ragSearch)
       ? { ...value.ragSearch }
       : { ...DEFAULT_RAG_SEARCH },
@@ -218,6 +233,9 @@ function restoreConfig(value: unknown): AgentConfig | null {
     customProfile,
     model: value.model,
     temperature: value.temperature,
+    ...(value.maxOutputTokens !== undefined
+      ? { maxOutputTokens: value.maxOutputTokens }
+      : {}),
     outputFormat: value.outputFormat,
     contextWindowTokens,
     contextStrategy,

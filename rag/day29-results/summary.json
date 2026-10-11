@@ -1,0 +1,62 @@
+{
+  "baseline-q4": {
+    "total": 8,
+    "pass": 5,
+    "invalid": 0,
+    "median_ms": 11825.5,
+    "median_ttft_ms": 10367.5,
+    "peak_allocated_bytes": 6578881166,
+    "peak_vram_bytes": 6578881166,
+    "by_split": {
+      "dev": {
+        "total": 4,
+        "pass": 2
+      },
+      "test": {
+        "total": 4,
+        "pass": 3
+      }
+    },
+    "median_answerable_ms": 12439.5
+  },
+  "compact-q4": {
+    "total": 8,
+    "pass": 6,
+    "invalid": 0,
+    "median_ms": 12782,
+    "median_ttft_ms": 10933,
+    "peak_allocated_bytes": 5605802638,
+    "peak_vram_bytes": 5605802638,
+    "by_split": {
+      "dev": {
+        "total": 4,
+        "pass": 3
+      },
+      "test": {
+        "total": 4,
+        "pass": 3
+      }
+    },
+    "median_answerable_ms": 12947.0
+  },
+  "compact-q8": {
+    "total": 8,
+    "pass": 7,
+    "invalid": 0,
+    "median_ms": 12594,
+    "median_ttft_ms": 10024.5,
+    "peak_allocated_bytes": 8748751912,
+    "peak_vram_bytes": 8748751912,
+    "by_split": {
+      "dev": {
+        "total": 4,
+        "pass": 4
+      },
+      "test": {
+        "total": 4,
+        "pass": 3
+      }
+    },
+    "median_answerable_ms": 13514.0
+  }
+}

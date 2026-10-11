@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Приватный AI · День 30</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="badge">День 30 · Приватный сервис</span>
+        <h1>Ваш AI на сервере</h1>
+        <p>Модель работает на VPS. Соединение защищено SSH-туннелем.</p>
+      </header>
+      <form id="login">
+        <label for="token">Ключ доступа</label>
+        <div class="row">
+          <input
+            id="token"
+            type="password"
+            autocomplete="off"
+            required
+            placeholder="Ключ API из файла на сервере"
+          /><button>Подключиться</button>
+        </div>
+        <small
+          >Ключ и сообщения хранятся только в памяти этой вкладки и исчезнут
+          после обновления.</small
+        >
+      </form>
+      <section id="chat" hidden>
+        <div class="toolbar">
+          <div>
+            <strong id="model"></strong>
+            <p id="limits"></p>
+          </div>
+          <button id="reset" type="button" class="secondary">
+            Новый диалог</button
+          ><button id="logout" type="button" class="secondary">Выйти</button>
+        </div>
+        <p class="notice">
+          Это обычный чат без RAG и проверки источников. Модель может ошибаться.
+        </p>
+        <div id="messages" aria-live="polite"></div>
+        <form id="compose">
+          <label for="question">Сообщение</label
+          ><textarea
+            id="question"
+            rows="3"
+            required
+            placeholder="Например: сколько будет 17 + 25?"
+          ></textarea>
+          <div class="row">
+            <small>Enter — отправить · Shift + Enter — новая строка</small
+            ><button id="send">Отправить</button
+            ><button id="cancel" type="button" class="secondary" hidden>
+              Остановить
+            </button>
+          </div>
+        </form>
+      </section>
+      <p id="status" role="status"></p>
+    </main>
+  </body>
+</html>

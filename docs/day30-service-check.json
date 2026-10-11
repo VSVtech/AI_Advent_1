@@ -1,0 +1,508 @@
+{
+  "startedAt": "2026-10-11T20:09:00.571Z",
+  "finishedAt": "2026-10-11T20:09:43.684Z",
+  "transport": "HTTP over SSH tunnel",
+  "limits": {
+    "model": "qwen2.5:0.5b",
+    "contextTokens": 2048,
+    "maxOutputTokens": 256,
+    "requestsPerMinute": 8,
+    "concurrency": 1,
+    "active": 0,
+    "queued": 0,
+    "queueCapacity": 4,
+    "queueTimeoutMs": 120000,
+    "generationTimeoutMs": 120000,
+    "access": "ssh-tunnel",
+    "inference": "local-on-server"
+  },
+  "results": [
+    {
+      "name": "unauthorized",
+      "status": 401,
+      "seconds": 0.18,
+      "error": "Нужен ключ доступа.",
+      "code": "unauthorized",
+      "clientSeconds": 0.176
+    },
+    {
+      "name": "max-context",
+      "status": 413,
+      "seconds": 0.08,
+      "code": "context_limit",
+      "error": "История не помещается в окно с резервом ответа. Начните новый чат или сократите вопрос.",
+      "clientSeconds": 0.079
+    },
+    {
+      "name": "model-override",
+      "status": 400,
+      "seconds": 0.03,
+      "code": "invalid_request",
+      "error": "Допустимы только messages, temperature, max_tokens и context_tokens. Модель задаёт сервер.",
+      "clientSeconds": 0.031
+    },
+    {
+      "name": "arithmetic",
+      "status": 200,
+      "seconds": 3.54,
+      "model": "qwen2.5:0.5b",
+      "message": {
+        "role": "assistant",
+        "content": "32"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "inputTokens": 67,
+        "outputTokens": 3
+      },
+      "queueWaitSeconds": 0,
+      "generationSeconds": 3.541,
+      "clientSeconds": 3.57,
+      "expectedAnswer": "42",
+      "answerMatchesExpected": false
+    },
+    {
+      "name": "explanation",
+      "status": 200,
+      "seconds": 5.66,
+      "model": "qwen2.5:0.5b",
+      "message": {
+        "role": "assistant",
+        "content": "HTTP API - это сервис, который позволяет обрабатывать запросы и передавать данные между различными системами. Они используются для взаимодействия между различными системами и сервисами, таких как сайты, приложения, библиотеки и т.д. Они позволяют обрабатывать запросы, передавать данные и выполнять задачи."
+      },
+      "finishReason": "stop",
+      "usage": {
+        "inputTokens": 75,
+        "outputTokens": 82
+      },
+      "queueWaitSeconds": 0,
+      "generationSeconds": 5.662,
+      "clientSeconds": 5.722
+    },
+    {
+      "name": "logic",
+      "status": 200,
+      "seconds": 1.26,
+      "model": "qwen2.5:0.5b",
+      "message": {
+        "role": "assistant",
+        "content": "[1, 3, 2]"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "inputTokens": 87,
+        "outputTokens": 10
+      },
+      "queueWaitSeconds": 0,
+      "generationSeconds": 1.264,
+      "clientSeconds": 1.333,
+      "expectedAnswer": "[3,1,2]",
+      "answerMatchesExpected": false
+    },
+    {
+      "name": "parallel-1",
+      "status": 200,
+      "seconds": 5.3,
+      "model": "qwen2.5:0.5b",
+      "message": {
+        "role": "assistant",
+        "content": "1. Снижение временных затрат: Локальная модель позволяет быстро и эффективно обрабатывать запросы.\n2. Управляемость: Пользователи могут легко изменять и улучшать модель.\n3. Простота: Модель легко воспроизводима и адаптируется к различным условиям."
+      },
+      "finishReason": "stop",
+      "usage": {
+        "inputTokens": 81,
+        "outputTokens": 74
+      },
+      "queueWaitSeconds": 0,
+      "generationSeconds": 5.298,
+      "clientSeconds": 5.355
+    },
+    {
+      "name": "parallel-2",
+      "status": 200,
+      "seconds": 11.31,
+      "model": "qwen2.5:0.5b",
+      "message": {
+        "role": "assistant",
+        "content": "1. Скорость обучения: Локальная языковая модель быстро адаптируется к новым словам и предложениям.\n\n2. Простота использования: Она позволяет быстро и легко использовать язык для выполнения задач.\n\n3. Безопасность: Локальная модель не зависит от внешних источников информации, что улучшает ее надежность."
+      },
+      "finishReason": "stop",
+      "usage": {
+        "inputTokens": 81,
+        "outputTokens": 80
+      },
+      "queueWaitSeconds": 5.298,
+      "generationSeconds": 6.014,
+      "clientSeconds": 11.37
+    },
+    {
+      "name": "parallel-3",
+      "status": 200,
+      "seconds": 17.29,
+      "model": "qwen2.5:0.5b",
+      "message": {
+        "role": "assistant",
+        "content": "1. Снижение временных затрат: Локальная модель позволяет работать с текстом и текстом другим пользователям в одном месте.\n\n2. Управляемость: Пользователи могут изменять текст и его интерпретацию в любое время.\n\n3. Простота: Модель работает на одном устройстве, что делает её удобной для использования."
+      },
+      "finishReason": "stop",
+      "usage": {
+        "inputTokens": 81,
+        "outputTokens": 82
+      },
+      "queueWaitSeconds": 11.31,
+      "generationSeconds": 5.98,
+      "clientSeconds": 17.349
+    },
+    {
+      "name": "rate-1",
+      "status": 429,
+      "seconds": 0.03,
+      "code": "rate_limit",
+      "error": "Лимит запросов исчерпан. Повторите позже.",
+      "clientSeconds": 0.032
+    },
+    {
+      "name": "recovery",
+      "status": 200,
+      "seconds": 0.47,
+      "model": "qwen2.5:0.5b",
+      "message": {
+        "role": "assistant",
+        "content": "4"
+      },
+      "finishReason": "stop",
+      "usage": {
+        "inputTokens": 65,
+        "outputTokens": 2
+      },
+      "queueWaitSeconds": 0,
+      "generationSeconds": 0.465,
+      "clientSeconds": 0.531
+    }
+  ],
+  "queueSamples": [
+    {
+      "at": "2026-10-11T20:09:11.541Z",
+      "active": 0,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:11.831Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:12.113Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:12.406Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:12.696Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:12.985Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:13.270Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:13.554Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:13.846Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:14.129Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:14.408Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:14.692Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:14.976Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:15.260Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:15.542Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:15.824Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:16.104Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:16.387Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:16.671Z",
+      "active": 1,
+      "queued": 2
+    },
+    {
+      "at": "2026-10-11T20:09:16.958Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:17.253Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:17.536Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:17.819Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:18.100Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:18.386Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:18.667Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:18.948Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:19.230Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:19.509Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:19.795Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:20.077Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:20.362Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:20.642Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:20.976Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:21.449Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:21.736Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:22.044Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:22.341Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:22.651Z",
+      "active": 1,
+      "queued": 1
+    },
+    {
+      "at": "2026-10-11T20:09:22.932Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:23.215Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:23.504Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:23.783Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:24.063Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:24.345Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:24.626Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:24.908Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:25.191Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:25.476Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:25.753Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:26.033Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:26.343Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:26.626Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:26.908Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:27.195Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:27.484Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:27.771Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:28.290Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:28.582Z",
+      "active": 1,
+      "queued": 0
+    },
+    {
+      "at": "2026-10-11T20:09:28.866Z",
+      "active": 0,
+      "queued": 0
+    }
+  ],
+  "browser": {
+    "answers": ["Проект называется Север.", "Север."],
+    "historyPreserved": true,
+    "mobileOverflow": false,
+    "pageErrors": [],
+    "logoutCleared": true
+  },
+  "network": [
+    {
+      "port": 18804,
+      "publiclyReachable": false
+    },
+    {
+      "port": 11435,
+      "publiclyReachable": false
+    }
+  ],
+  "resources": {
+    "ollamaCgroupPeakBytes": 1095749632,
+    "apiCgroupPeakBytes": 41381888,
+    "automaticRestarts": 0,
+    "note": "Cgroup includes page cache. Ollama peak spans both runs; API was restarted for queue deployment."
+  }
+}

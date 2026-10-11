@@ -1,0 +1,151 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  background: #0c1515;
+  color: #e5eeee;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 940px;
+  margin: auto;
+  padding: 48px 24px 80px;
+}
+.badge {
+  color: #57dcc0;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+h1 {
+  font-size: clamp(28px, 5vw, 42px);
+  margin: 12px 0;
+}
+header p,
+small,
+#limits {
+  color: #9baead;
+}
+form,
+.toolbar {
+  margin-top: 28px;
+}
+label {
+  display: block;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+.row,
+.toolbar {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.row small,
+.toolbar > div {
+  flex: 1;
+}
+.toolbar {
+  flex-wrap: wrap;
+  border-bottom: 1px solid #2b4140;
+  padding-bottom: 14px;
+}
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: #172625;
+  border: 1px solid #3b5350;
+  border-radius: 12px;
+  padding: 14px;
+  min-width: 0;
+  outline-offset: 4px;
+}
+input {
+  flex: 1;
+}
+textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 96px;
+  margin-bottom: 12px;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  background: #36c7a9;
+  color: #092620;
+  font-weight: 600;
+}
+button.secondary {
+  background: #263a37;
+  color: #d2e2df;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+small {
+  font-size: 13px;
+  display: block;
+  line-height: 1.6;
+  margin: 10px 0;
+}
+#status {
+  color: #efcf8c;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+.notice {
+  font-size: 13px;
+  color: #9baead;
+}
+article {
+  padding: 20px 24px;
+  background: #162422;
+  border: 1px solid #28433d;
+  border-radius: 16px;
+  margin: 18px 0;
+}
+article.user {
+  margin-left: 12%;
+  background: #203431;
+}
+article.assistant {
+  margin-right: 8%;
+}
+article strong {
+  color: #76d8c3;
+  font-size: 13px;
+}
+article p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+  margin: 10px 0 0;
+}
+[hidden] {
+  display: none !important;
+}
+@media (max-width: 600px) {
+  main {
+    padding: 28px 16px;
+  }
+  .row {
+    flex-wrap: wrap;
+  }
+  input {
+    flex-basis: 100%;
+  }
+  article.user,
+  article.assistant {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}

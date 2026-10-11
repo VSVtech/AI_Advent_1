@@ -37,7 +37,10 @@
     "rag:judge:compare": "node scripts/rag/compare-grounding-models.mjs",
     "rag:judge:configure": "node scripts/rag/configure-grounding.mjs",
     "local:check": "node scripts/check-local-llm.mjs",
-    "local:benchmark": "node scripts/benchmark-local-rag.mjs"
+    "local:benchmark": "node scripts/benchmark-local-rag.mjs",
+    "private:serve": "node scripts/private-llm/server.mjs",
+    "private:tunnel": "node scripts/private-llm/tunnel.mjs",
+    "private:check": "node scripts/private-llm/check.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

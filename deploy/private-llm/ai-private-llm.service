@@ -1,0 +1,28 @@
+[Unit]
+Description=Private AI HTTP API and web chat
+After=ai-private-ollama.service
+Requires=ai-private-ollama.service
+
+[Service]
+Type=simple
+User=ai-llm
+Group=ai-llm
+WorkingDirectory=/opt/ai-private-llm/app
+EnvironmentFile=/etc/ai-private-llm/service.env
+ExecStart=/opt/ai-private-llm/runtime/bin/node /opt/ai-private-llm/app/server.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+MemoryMax=192M
+TasksMax=32
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

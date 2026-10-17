@@ -19,6 +19,7 @@
     "mcp:notes": "node scripts/mcp-servers/notes.mjs",
     "mcp:git": "node scripts/mcp-servers/git.mjs",
     "mcp:support": "node scripts/mcp-servers/support.mjs",
+    "mcp:files": "node scripts/mcp-servers/files.mjs",
     "review:pr": "node scripts/review/review-pr.mjs",
     "weather:tick": "node scripts/mcp/weather-tick.mjs",
     "test": "vitest run --config vitest.config.ts",

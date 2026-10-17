@@ -99,6 +99,7 @@ import { contextWindowError } from '@/lib/server/context-window';
 import { generateInvariantSafeOutput } from '@/lib/server/task-invariants';
 import { HELP_PROMPT, parseHelpCommand } from '@/lib/help-command';
 import { SUPPORT_PROMPT, parseSupportCommand } from '@/lib/support-command';
+import { FILES_PROMPT, parseFilesCommand } from '@/lib/files-command';
 import {
   connectAgentMcp,
   type McpAgentConnection,
@@ -315,27 +316,42 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  // /help and /support always search the documentation and may call MCP
-  // tools, so they switch RAG on and use the plain (non-grounded) generation
-  // path.
+  // Slash commands rewrite the last message and pick a prompt. /help and
+  // /support also search the documentation (RAG); /files only needs the file
+  // tools. All of them use the plain (non-grounded) generation path.
   const lastMessage = body.messages.at(-1)!;
   const commandText =
     typeof lastMessage.content === 'string' ? lastMessage.content : null;
-  const helpQuestion = commandText ? parseHelpCommand(commandText) : null;
-  const supportQuestion = commandText ? parseSupportCommand(commandText) : null;
-  const commandQuestion = helpQuestion ?? supportQuestion;
-  const commandPrompt = helpQuestion !== null ? HELP_PROMPT : SUPPORT_PROMPT;
-  if (commandQuestion !== null) {
+  const command = commandText
+    ? ([
+        { question: parseHelpCommand(commandText), prompt: HELP_PROMPT, rag: true },
+        { question: parseSupportCommand(commandText), prompt: SUPPORT_PROMPT, rag: true },
+        { question: parseFilesCommand(commandText), prompt: FILES_PROMPT, rag: false },
+      ].find((item) => item.question !== null) ?? null)
+    : null;
+  const commandQuestion = command?.question ?? null;
+  const commandPrompt = command?.prompt ?? null;
+  if (command && commandQuestion !== null) {
+    const localModel =
+      typeof body.model === 'string' && isLocalModel(body.model);
+    if (!command.rag && localModel) {
+      return jsonError(400, {
+        code: 'local_tools_unsupported',
+        message:
+          'Команда /files работает с MCP-инструментами, которых нет у локальных агентов Ollama.',
+      });
+    }
     body.messages = [
       ...body.messages.slice(0, -1),
       { ...lastMessage, content: commandQuestion },
     ];
-    body.useRag = true;
-    // Local Ollama agents have no MCP tools: commands answer from RAG only.
-    body.useMcpTools = !(typeof body.model === 'string' && isLocalModel(body.model));
+    body.useRag = command.rag;
+    // Local Ollama agents have no MCP tools: /help and /support use RAG only.
+    body.useMcpTools = !localModel;
     delete body.ragGrounding;
     delete body.ragDialogue;
     delete body.ragSearch;
+    delete body.ragBuildId;
   }
 
   if (
@@ -555,7 +571,7 @@ export async function POST(request: Request): Promise<Response> {
       profilePrompt,
       longTermPrompt,
       taskPrompt,
-      commandQuestion === null ? null : commandPrompt,
+      commandPrompt,
     ]
       .filter(Boolean)
       .join('\n\n') || null;

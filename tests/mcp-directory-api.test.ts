@@ -108,6 +108,11 @@ test('каталог показывает недоступность, если �
         name: 'Поддержка',
         status: 'unavailable',
       }),
+      expect.objectContaining({
+        id: 'files',
+        name: 'Файлы',
+        status: 'unavailable',
+      }),
     ],
   });
 });

@@ -31,9 +31,10 @@ export function isValidTemperature(value: unknown): value is number {
 }
 
 export const DEFAULT_MODEL = 'deepseek-v4-flash';
-// A long multi-server MCP flow within one answer.
-export const MAX_MCP_TOOL_ROUNDS = 6;
-export const MAX_MCP_TOOL_CALLS = 12;
+// A long multi-server MCP flow within one answer; file tasks read several
+// files in parallel rounds.
+export const MAX_MCP_TOOL_ROUNDS = 10;
+export const MAX_MCP_TOOL_CALLS = 24;
 export const MAX_MODEL_ID_LENGTH = 200;
 
 export function isValidModel(value: unknown): value is string {

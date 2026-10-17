@@ -77,6 +77,9 @@ test('скилл предлагается модели только при на�
   expect(AGENT_SKILLS.map((skill) => skill.tools)).toEqual([
     ['find_concert', 'get_weather'],
     ['find_concert', 'get_weather', 'plan_trip', 'save_note'],
+    ['fs_search', 'fs_read'],
+    ['fs_read', 'fs_search', 'fs_replace'],
+    ['fs_search', 'fs_read', 'fs_write'],
   ]);
   expect(buildSkillsPrompt(['get_weather'])).toBeNull();
   const prompt = buildSkillsPrompt(['ping', 'find_concert', 'get_weather']);
@@ -84,6 +87,14 @@ test('скилл предлагается модели только при на�
     'Скилл «Погода на концерте» (find_concert → get_weather)',
   );
   expect(prompt).toContain('вызови get_weather ровно с этим значением');
+  // File skills appear together with the file tools and not otherwise.
+  expect(prompt).not.toContain('Где используется');
+  expect(buildSkillsPrompt(['fs_search', 'fs_read'])).toContain(
+    'Скилл «Где используется»',
+  );
+  expect(buildSkillsPrompt(['fs_search', 'fs_read'])).not.toContain(
+    'ADR по коду',
+  );
 });
 
 test('цепочка через MCP: город из find_concert уходит в get_weather без изменений', async () => {

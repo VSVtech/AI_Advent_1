@@ -108,6 +108,67 @@ function validArguments(name: string, args: Record<string, unknown>): boolean {
       keys.every((key) => key === 'jobId' || key === 'date')
     );
   }
+  // File tools: paths and the writable set are enforced by the server.
+  if (name === 'fs_list') {
+    return Object.entries(args).every(
+      ([key, value]) =>
+        key === 'directory' && typeof value === 'string' && value.length <= 300,
+    );
+  }
+  if (name === 'fs_read') {
+    return (
+      Object.keys(args).every((key) =>
+        ['path', 'startLine', 'endLine'].includes(key),
+      ) &&
+      typeof args.path === 'string' &&
+      args.path.length <= 300 &&
+      ['startLine', 'endLine'].every(
+        (key) =>
+          args[key] === undefined ||
+          (Number.isInteger(args[key]) && (args[key] as number) >= 1),
+      )
+    );
+  }
+  if (name === 'fs_search') {
+    return (
+      Object.keys(args).every((key) =>
+        ['query', 'directory', 'extension'].includes(key),
+      ) &&
+      typeof args.query === 'string' &&
+      args.query.length >= 2 &&
+      args.query.length <= 200 &&
+      ['directory', 'extension'].every(
+        (key) =>
+          args[key] === undefined ||
+          (typeof args[key] === 'string' && (args[key] as string).length <= 300),
+      )
+    );
+  }
+  if (name === 'fs_replace') {
+    return (
+      Object.keys(args).every((key) =>
+        ['path', 'search', 'replace', 'dryRun'].includes(key),
+      ) &&
+      typeof args.path === 'string' &&
+      typeof args.search === 'string' &&
+      args.search.length >= 1 &&
+      typeof args.replace === 'string' &&
+      (args.dryRun === undefined || typeof args.dryRun === 'boolean')
+    );
+  }
+  if (name === 'fs_write') {
+    return (
+      Object.keys(args).every((key) =>
+        ['path', 'content', 'overwrite', 'dryRun'].includes(key),
+      ) &&
+      typeof args.path === 'string' &&
+      typeof args.content === 'string' &&
+      args.content.length >= 1 &&
+      ['overwrite', 'dryRun'].every(
+        (key) => args[key] === undefined || typeof args[key] === 'boolean',
+      )
+    );
+  }
   // Support tools are read-only; the server checks the id formats itself.
   if (name === 'get_ticket') {
     return (

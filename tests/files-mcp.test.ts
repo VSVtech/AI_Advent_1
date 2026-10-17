@@ -215,6 +215,7 @@ describe('/files command', () => {
           ragGrounding: true,
           useMcpTools: false,
           useSystemPrompt: false,
+          targetOutputTokens: 500,
         }),
       }),
     );
@@ -223,6 +224,8 @@ describe('/files command', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body.instructions).toContain('Команда /files');
+    // The default 500-token target would cut tool-driven answers short.
+    expect(body.max_output_tokens).toBeGreaterThanOrEqual(8000);
     expect(JSON.stringify(body.input)).toContain('Цель: найди где используется get_weather');
     expect(JSON.stringify(body.input)).not.toContain('RAG_CONTEXT');
   });

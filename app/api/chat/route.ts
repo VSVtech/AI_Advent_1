@@ -110,6 +110,7 @@ import {
 } from '@/lib/server/mcp-deepseek';
 
 const MAX_FORMAT_RETRIES = 3;
+const COMMAND_MAX_OUTPUT_TOKENS = 8000;
 
 async function withMcpConnection(
   connection: McpAgentConnection | null,
@@ -352,6 +353,13 @@ export async function POST(request: Request): Promise<Response> {
     delete body.ragDialogue;
     delete body.ragSearch;
     delete body.ragBuildId;
+    // Tool-driven answers (file reports, diffs, ticket analysis) do not fit the
+    // chat's default 500-token target; commands manage the length themselves.
+    body.targetOutputTokens = null;
+    body.maxOutputTokens = Math.max(
+      typeof body.maxOutputTokens === 'number' ? body.maxOutputTokens : 0,
+      COMMAND_MAX_OUTPUT_TOKENS,
+    );
   }
 
   if (

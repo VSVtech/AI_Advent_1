@@ -90,6 +90,24 @@ describe('change collection', () => {
 
   it('rejects option-like bases', async () => {
     await expect(collectChange('--output=x', repo)).rejects.toThrow();
+    await expect(
+      collectChange('main', repo, { head: '--output=x' }),
+    ).rejects.toThrow();
+  });
+
+  it('reads the PR commits from a ref without checking them out', async () => {
+    run('branch', 'pr-head', 'feature');
+    run('checkout', 'main');
+    try {
+      const change = await collectChange('main', repo, {
+        head: 'pr-head',
+        label: 'contributor/feature',
+      });
+      expect(change.branch).toBe('contributor/feature');
+      expect(change.files).toEqual([{ status: 'A', path: 'lib/session.ts' }]);
+    } finally {
+      run('checkout', 'feature');
+    }
   });
 
   it('trims long per-file diffs and omits what does not fit', () => {
@@ -182,11 +200,17 @@ describe('command line', () => {
       base: 'main',
       out: 'r.md',
       dryRun: false,
+      head: undefined,
+      label: undefined,
     });
-    expect(parseCliArgs(['--out', 'r.md', '--dry-run'])).toEqual({
+    expect(
+      parseCliArgs(['--out', 'r.md', '--dry-run', '--head', 'pr', '--label', 'x']),
+    ).toEqual({
       base: undefined,
       out: 'r.md',
       dryRun: true,
+      head: 'pr',
+      label: 'x',
     });
   });
 

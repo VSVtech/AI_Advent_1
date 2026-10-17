@@ -39,14 +39,24 @@ async function git(args, cwd) {
   return stdout;
 }
 
-export async function collectChange(base, cwd = process.cwd()) {
-  if (!SAFE_REF.test(base)) throw new Error(`Некорректная база сравнения: ${base}`);
-  const range = `${base}...HEAD`;
+/**
+ * @param {string} base
+ * @param {string} [cwd]
+ * @param {{ head?: string, label?: string }} [options] head is the ref with
+ *   the PR commits; in CI it is fetched as data and never checked out.
+ */
+export async function collectChange(base, cwd = process.cwd(), { head = 'HEAD', label } = {}) {
+  for (const ref of [base, head]) {
+    if (!SAFE_REF.test(ref)) throw new Error(`Некорректная ссылка для сравнения: ${ref}`);
+  }
+  const range = `${base}...${head}`;
+  // Never run external diff drivers or text conversion on PR content.
+  const diffArgs = ['diff', '--no-ext-diff', '--no-textconv'];
   const [names, stat, patch, branch] = await Promise.all([
-    git(['diff', '--name-status', range, '--', '.', ...EXCLUDES], cwd),
-    git(['diff', '--stat', range, '--', '.', ...EXCLUDES], cwd),
-    git(['diff', '--no-color', '--unified=3', range, '--', '.', ...EXCLUDES], cwd),
-    git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd),
+    git([...diffArgs, '--name-status', range, '--', '.', ...EXCLUDES], cwd),
+    git([...diffArgs, '--stat', range, '--', '.', ...EXCLUDES], cwd),
+    git([...diffArgs, '--no-color', '--unified=3', range, '--', '.', ...EXCLUDES], cwd),
+    label ? Promise.resolve(label) : git(['rev-parse', '--abbrev-ref', head], cwd),
   ]);
   const files = names
     .trim()
@@ -195,7 +205,7 @@ export function formatComment(review, change, context) {
 
 /**
  * @param {string[]} argv
- * @returns {{ base: string | undefined, out: string | undefined, dryRun: boolean }}
+ * @returns {{ base: string | undefined, out: string | undefined, dryRun: boolean, head: string | undefined, label: string | undefined }}
  */
 export function parseCliArgs(argv) {
   const { values, positionals } = parseArgs({
@@ -203,6 +213,8 @@ export function parseCliArgs(argv) {
     options: {
       out: { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
+      head: { type: 'string' },
+      label: { type: 'string' },
     },
     allowPositionals: true,
   });
@@ -213,6 +225,8 @@ export function parseCliArgs(argv) {
     base: positionals[0],
     out: values.out,
     dryRun: values['dry-run'] === true,
+    head: values.head,
+    label: values.label,
   };
 }
 
@@ -221,10 +235,10 @@ export function parseCliArgs(argv) {
  * @param {Record<string, string | undefined>} [env]
  */
 export async function main(argv = process.argv.slice(2), env = process.env) {
-  const { base: baseArg, out: outFile, dryRun } = parseCliArgs(argv);
+  const { base: baseArg, out: outFile, dryRun, head, label } = parseCliArgs(argv);
   const base = baseArg ?? env.REVIEW_BASE ?? 'origin/main';
   const root = process.cwd();
-  const change = await collectChange(base, root);
+  const change = await collectChange(base, root, { head, label });
   if (change.files.length === 0) {
     console.log('Нет изменений для ревью.');
     return null;

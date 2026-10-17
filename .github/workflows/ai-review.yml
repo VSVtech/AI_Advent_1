@@ -1,7 +1,11 @@
 name: AI code review
 
+# pull_request_target runs the workflow and the review script from the BASE
+# branch, so the secret is never exposed to code from a pull request. The PR
+# commits are only fetched as git objects and read as diff data: nothing from
+# the PR is checked out, installed or executed.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, edited]
 
 permissions:
@@ -17,12 +21,13 @@ concurrency:
 jobs:
   review:
     runs-on: ubuntu-latest
-    # Secrets are not available to pull requests from forks. «edited» matters
-    # only when the base branch changed: the diff is different then.
+    # Spending the API key is limited to people with a role in the repository.
+    # «edited» matters only when the base branch changed: the diff is different.
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) &&
       (github.event.action != 'edited' || github.event.changes.base)
     steps:
+      # Default ref for pull_request_target is the base branch: trusted code.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -31,13 +36,19 @@ jobs:
         with:
           node-version: 22
 
+      - name: Fetch pull request commits as data
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head"
+
       - name: Generate review
         # A failure is written into review.md and posted by the next step.
         continue-on-error: true
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           REVIEW_BASE: origin/${{ github.base_ref }}
-        run: node scripts/review/review-pr.mjs --out review.md
+          HEAD_LABEL: ${{ github.head_ref }}
+        run: node scripts/review/review-pr.mjs --head refs/remotes/pr/head --label="$HEAD_LABEL" --out review.md
 
       - name: Post review comment
         if: ${{ always() && hashFiles('review.md') != '' }}

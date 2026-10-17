@@ -358,3 +358,36 @@ describe('RAG state and persistence', () => {
     expect(agent.config.useRag).toBe(false);
   });
 });
+
+describe('/help command', () => {
+  it('forces RAG with plain generation and a developer-assistant prompt', async () => {
+    process.env.DEEPSEEK_API_KEY = 'test-secret';
+    vi.stubEnv('MCP_CAPSULE_URL', 'not a url');
+    vi.stubEnv('MCP_TRAVEL_URL', 'not a url');
+    vi.stubEnv('MCP_NOTES_URL', 'not a url');
+    vi.stubEnv('MCP_GIT_URL', 'not a url');
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(searchResponse())
+      .mockResolvedValueOnce(answerResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    const response = await POST(
+      request({
+        messages: [{ role: 'user', content: '/help Где память?' }],
+        useRag: false,
+        ragGrounding: true,
+        ragDialogue: true,
+        useMcpTools: false,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const searchBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(JSON.stringify(searchBody)).toContain('Где память?');
+    expect(JSON.stringify(searchBody)).not.toContain('/help');
+    const answerBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expect(answerBody.instructions).toContain('Команда /help');
+    expect(JSON.stringify(answerBody.input)).toContain('Где память?');
+    vi.unstubAllEnvs();
+  });
+});

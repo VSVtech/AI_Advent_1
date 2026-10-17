@@ -97,6 +97,7 @@ import {
 } from '@/lib/server/deepseek';
 import { contextWindowError } from '@/lib/server/context-window';
 import { generateInvariantSafeOutput } from '@/lib/server/task-invariants';
+import { HELP_PROMPT, parseHelpCommand } from '@/lib/help-command';
 import {
   connectAgentMcp,
   type McpAgentConnection,
@@ -313,6 +314,26 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
+  // /help always searches the documentation and may call the git tools, so it
+  // switches RAG on and uses the plain (non-grounded) generation path.
+  const lastMessage = body.messages.at(-1)!;
+  const helpQuestion =
+    typeof lastMessage.content === 'string'
+      ? parseHelpCommand(lastMessage.content)
+      : null;
+  if (helpQuestion !== null) {
+    body.messages = [
+      ...body.messages.slice(0, -1),
+      { ...lastMessage, content: helpQuestion },
+    ];
+    body.useRag = true;
+    // Local Ollama agents have no MCP tools: /help answers from RAG only.
+    body.useMcpTools = !(typeof body.model === 'string' && isLocalModel(body.model));
+    delete body.ragGrounding;
+    delete body.ragDialogue;
+    delete body.ragSearch;
+  }
+
   if (
     (body.ragDialogue !== undefined &&
       (typeof body.ragDialogue !== 'boolean' ||
@@ -525,7 +546,13 @@ export async function POST(request: Request): Promise<Response> {
   const profilePrompt = profile ? buildUserProfileSystemPrompt(profile) : null;
   const taskPrompt = taskState ? buildTaskStateSystemPrompt(taskState) : null;
   let systemPrompt =
-    [configuredPrompt, profilePrompt, longTermPrompt, taskPrompt]
+    [
+      configuredPrompt,
+      profilePrompt,
+      longTermPrompt,
+      taskPrompt,
+      helpQuestion === null ? null : HELP_PROMPT,
+    ]
       .filter(Boolean)
       .join('\n\n') || null;
 

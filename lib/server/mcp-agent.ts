@@ -108,6 +108,24 @@ function validArguments(name: string, args: Record<string, unknown>): boolean {
       keys.every((key) => key === 'jobId' || key === 'date')
     );
   }
+  // Git tools are read-only; the server validates refs and paths itself.
+  if (name === 'git_current_branch' || name === 'git_status') {
+    return Object.keys(args).length === 0;
+  }
+  if (name === 'git_changed_files' || name === 'git_diff') {
+    return Object.entries(args).every(
+      ([key, value]) =>
+        (key === 'base' || (name === 'git_diff' && key === 'path')) &&
+        typeof value === 'string' &&
+        value.length <= 300,
+    );
+  }
+  if (name === 'git_list_files') {
+    return Object.entries(args).every(
+      ([key, value]) =>
+        key === 'directory' && typeof value === 'string' && value.length <= 300,
+    );
+  }
   return false;
 }
 

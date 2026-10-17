@@ -1,6 +1,6 @@
 {
   "name": "DeepSeek Chat — документация и исходники",
-  "description": "Явный список документов дня 21. История чата, заметки и секреты не индексируются.",
+  "description": "Явный список документов: README, docs/ и исходники. История чата, заметки и секреты не индексируются.",
   "files": [
     "README.md",
     "start.sh",
@@ -52,6 +52,11 @@
     "scripts/mcp/weather-jobs.mjs",
     "scripts/mcp/weather-store.mjs",
     "scripts/mcp/weather-tick.mjs",
-    "scripts/mcp/weather.mjs"
+    "scripts/mcp/weather.mjs",
+    "scripts/mcp-servers/git.mjs",
+    "lib/help-command.ts",
+    "docs/day26-local-llm.md",
+    "docs/day29-local-optimization.md",
+    "docs/day30-private-service.md"
   ]
 }

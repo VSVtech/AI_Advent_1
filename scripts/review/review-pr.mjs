@@ -4,7 +4,7 @@
 import { execFile } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { promisify } from 'node:util';
+import { parseArgs, promisify } from 'node:util';
 
 import { buildIndex, loadCorpusChunks, search } from './lexical-search.mjs';
 
@@ -157,7 +157,7 @@ export async function callDeepSeek(input, { apiKey, model = DEFAULT_MODEL, fetch
       model,
       instructions: REVIEW_INSTRUCTIONS,
       input: [{ role: 'user', content: input }],
-      max_output_tokens: 4000,
+      max_output_tokens: 6000,
       temperature: 0.2,
       stream: false,
       reasoning: { effort: 'none' },
@@ -175,10 +175,11 @@ export async function callDeepSeek(input, { apiKey, model = DEFAULT_MODEL, fetch
     .map((part) => part.text)
     .join('')
     .trim();
-  if (!text || payload.status === 'incomplete') {
-    throw new Error('DeepSeek не вернул полный текст ревью');
-  }
-  return text;
+  if (!text) throw new Error('DeepSeek вернул пустой ответ');
+  // A review cut off by the token limit is still useful: publish it, marked.
+  return payload.status === 'incomplete'
+    ? `${text}\n\n> ⚠️ Ответ модели обрезан по лимиту токенов, ревью неполное.`
+    : text;
 }
 
 export function formatComment(review, change, context) {
@@ -193,14 +194,35 @@ export function formatComment(review, change, context) {
 }
 
 /**
+ * @param {string[]} argv
+ * @returns {{ base: string | undefined, out: string | undefined, dryRun: boolean }}
+ */
+export function parseCliArgs(argv) {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    options: {
+      out: { type: 'string' },
+      'dry-run': { type: 'boolean', default: false },
+    },
+    allowPositionals: true,
+  });
+  if (positionals.length > 1) {
+    throw new Error(`Лишние аргументы: ${positionals.slice(1).join(' ')}`);
+  }
+  return {
+    base: positionals[0],
+    out: values.out,
+    dryRun: values['dry-run'] === true,
+  };
+}
+
+/**
  * @param {string[]} [argv]
  * @param {Record<string, string | undefined>} [env]
  */
 export async function main(argv = process.argv.slice(2), env = process.env) {
-  const args = argv.filter((arg) => !arg.startsWith('--'));
-  const outIndex = argv.indexOf('--out');
-  const outFile = outIndex >= 0 ? argv[outIndex + 1] : null;
-  const base = args.find((arg) => arg !== outFile) ?? env.REVIEW_BASE ?? 'origin/main';
+  const { base: baseArg, out: outFile, dryRun } = parseCliArgs(argv);
+  const base = baseArg ?? env.REVIEW_BASE ?? 'origin/main';
   const root = process.cwd();
   const change = await collectChange(base, root);
   if (change.files.length === 0) {
@@ -210,7 +232,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   const trimmed = trimPatch(change.patch);
   const context = await retrieveContext(change, root);
   const input = buildReviewInput(change, trimmed, context);
-  if (argv.includes('--dry-run')) {
+  if (dryRun) {
     console.log(`${REVIEW_INSTRUCTIONS}\n\n${input}`);
     return null;
   }
@@ -240,8 +262,13 @@ if (
 ) {
   main().catch(async (error) => {
     console.error(`Ревью не выполнено: ${error.message}`);
+    // Parse the flag independently: the failure comment needs it even when
+    // the arguments themselves were the problem.
     const outIndex = process.argv.indexOf('--out');
-    if (outIndex >= 0) await writeFailure(error, process.argv[outIndex + 1]);
+    const outFile = outIndex >= 0 ? process.argv[outIndex + 1] : undefined;
+    if (outFile && !outFile.startsWith('--')) {
+      await writeFailure(error, outFile);
+    }
     process.exit(1);
   });
 }

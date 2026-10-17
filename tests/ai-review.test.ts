@@ -18,6 +18,7 @@ import {
   collectChange,
   formatComment,
   main,
+  parseCliArgs,
   retrieveContext,
   trimPatch,
 } from '@/scripts/review/review-pr.mjs';
@@ -131,6 +132,24 @@ describe('review input and request', () => {
     expect(body.instructions).toContain('Потенциальные баги');
   });
 
+  it('publishes a truncated answer with a note and rejects an empty one', async () => {
+    const answer = (status: string, text: string) =>
+      vi.fn().mockResolvedValue(
+        Response.json({
+          status,
+          output: [
+            { type: 'message', content: [{ type: 'output_text', text }] },
+          ],
+        }),
+      );
+    await expect(
+      callDeepSeek('d', { apiKey: 'k', fetchImpl: answer('incomplete', '## часть') }),
+    ).resolves.toContain('обрезан по лимиту');
+    await expect(
+      callDeepSeek('d', { apiKey: 'k', fetchImpl: answer('incomplete', '') }),
+    ).rejects.toThrow('пустой');
+  });
+
   it('fails on upstream errors without leaking the key', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response('no', { status: 401 }));
     await expect(
@@ -154,5 +173,25 @@ describe('review input and request', () => {
     } finally {
       process.chdir(cwd);
     }
+  });
+});
+
+describe('command line', () => {
+  it('parses base, --out and --dry-run in any order', () => {
+    expect(parseCliArgs(['main', '--out', 'r.md'])).toEqual({
+      base: 'main',
+      out: 'r.md',
+      dryRun: false,
+    });
+    expect(parseCliArgs(['--out', 'r.md', '--dry-run'])).toEqual({
+      base: undefined,
+      out: 'r.md',
+      dryRun: true,
+    });
+  });
+
+  it('rejects --out without a value and extra arguments', () => {
+    expect(() => parseCliArgs(['main', '--out'])).toThrow();
+    expect(() => parseCliArgs(['a', 'b'])).toThrow('Лишние аргументы');
   });
 });

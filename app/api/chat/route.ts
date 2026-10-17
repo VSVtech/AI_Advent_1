@@ -98,6 +98,7 @@ import {
 import { contextWindowError } from '@/lib/server/context-window';
 import { generateInvariantSafeOutput } from '@/lib/server/task-invariants';
 import { HELP_PROMPT, parseHelpCommand } from '@/lib/help-command';
+import { SUPPORT_PROMPT, parseSupportCommand } from '@/lib/support-command';
 import {
   connectAgentMcp,
   type McpAgentConnection,
@@ -314,20 +315,23 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  // /help always searches the documentation and may call the git tools, so it
-  // switches RAG on and uses the plain (non-grounded) generation path.
+  // /help and /support always search the documentation and may call MCP
+  // tools, so they switch RAG on and use the plain (non-grounded) generation
+  // path.
   const lastMessage = body.messages.at(-1)!;
-  const helpQuestion =
-    typeof lastMessage.content === 'string'
-      ? parseHelpCommand(lastMessage.content)
-      : null;
-  if (helpQuestion !== null) {
+  const commandText =
+    typeof lastMessage.content === 'string' ? lastMessage.content : null;
+  const helpQuestion = commandText ? parseHelpCommand(commandText) : null;
+  const supportQuestion = commandText ? parseSupportCommand(commandText) : null;
+  const commandQuestion = helpQuestion ?? supportQuestion;
+  const commandPrompt = helpQuestion !== null ? HELP_PROMPT : SUPPORT_PROMPT;
+  if (commandQuestion !== null) {
     body.messages = [
       ...body.messages.slice(0, -1),
-      { ...lastMessage, content: helpQuestion },
+      { ...lastMessage, content: commandQuestion },
     ];
     body.useRag = true;
-    // Local Ollama agents have no MCP tools: /help answers from RAG only.
+    // Local Ollama agents have no MCP tools: commands answer from RAG only.
     body.useMcpTools = !(typeof body.model === 'string' && isLocalModel(body.model));
     delete body.ragGrounding;
     delete body.ragDialogue;
@@ -551,7 +555,7 @@ export async function POST(request: Request): Promise<Response> {
       profilePrompt,
       longTermPrompt,
       taskPrompt,
-      helpQuestion === null ? null : HELP_PROMPT,
+      commandQuestion === null ? null : commandPrompt,
     ]
       .filter(Boolean)
       .join('\n\n') || null;

@@ -2,6 +2,7 @@ export const DEFAULT_MCP_CAPSULE_URL = 'http://127.0.0.1:18765/mcp';
 export const DEFAULT_MCP_TRAVEL_URL = 'http://127.0.0.1:18801/mcp';
 export const DEFAULT_MCP_NOTES_URL = 'http://127.0.0.1:18802/mcp';
 export const DEFAULT_MCP_GIT_URL = 'http://127.0.0.1:18805/mcp';
+export const DEFAULT_MCP_SUPPORT_URL = 'http://127.0.0.1:18806/mcp';
 
 export function mcpCapsuleUrl(): URL {
   return new URL(process.env.MCP_CAPSULE_URL ?? DEFAULT_MCP_CAPSULE_URL);
@@ -63,6 +64,20 @@ export const MCP_SERVERS: readonly McpServerConfig[] = [
       'git_changed_files',
       'git_diff',
       'git_list_files',
+    ],
+  },
+  {
+    id: 'support',
+    name: 'Поддержка',
+    location: 'локально · Streamable HTTP',
+    hint: 'Запустите приложение через start.sh или выполните pnpm mcp:support.',
+    url: () =>
+      new URL(process.env.MCP_SUPPORT_URL ?? DEFAULT_MCP_SUPPORT_URL),
+    tools: [
+      'get_ticket',
+      'get_user',
+      'list_user_tickets',
+      'get_auth_events',
     ],
   },
 ];

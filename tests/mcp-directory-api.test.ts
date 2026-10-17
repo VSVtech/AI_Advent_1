@@ -103,6 +103,11 @@ test('каталог показывает недоступность, если �
         name: 'Git',
         status: 'unavailable',
       }),
+      expect.objectContaining({
+        id: 'support',
+        name: 'Поддержка',
+        status: 'unavailable',
+      }),
     ],
   });
 });

@@ -1,0 +1,21 @@
+[
+  { "userId": "u-1001", "at": "2026-10-17T08:55:10Z", "event": "sms_sent", "detail": "код отправлен" },
+  { "userId": "u-1001", "at": "2026-10-17T09:01:42Z", "event": "sms_sent", "detail": "код отправлен повторно" },
+  { "userId": "u-1001", "at": "2026-10-17T09:09:03Z", "event": "sms_sent", "detail": "код отправлен повторно" },
+  { "userId": "u-1001", "at": "2026-10-17T09:11:30Z", "event": "sms_limit_exceeded", "detail": "лимит 3 SMS в час, следующая отправка после 09:55" },
+  { "userId": "u-1002", "at": "2026-10-17T10:21:00Z", "event": "login_failed", "detail": "неверный пароль (1/5)" },
+  { "userId": "u-1002", "at": "2026-10-17T10:22:10Z", "event": "login_failed", "detail": "неверный пароль (2/5)" },
+  { "userId": "u-1002", "at": "2026-10-17T10:23:05Z", "event": "login_failed", "detail": "неверный пароль (3/5)" },
+  { "userId": "u-1002", "at": "2026-10-17T10:24:40Z", "event": "login_failed", "detail": "неверный пароль (4/5)" },
+  { "userId": "u-1002", "at": "2026-10-17T10:25:30Z", "event": "login_failed", "detail": "неверный пароль (5/5)" },
+  { "userId": "u-1002", "at": "2026-10-17T10:25:30Z", "event": "account_locked", "detail": "блокировка на 30 минут, до 10:55" },
+  { "userId": "u-1002", "at": "2026-10-17T10:38:12Z", "event": "login_rejected", "detail": "аккаунт заблокирован" },
+  { "userId": "u-1003", "at": "2026-10-17T10:58:00Z", "event": "login_rejected", "detail": "client_too_old: версия 3.9.1, минимально поддерживаемая 4.0.0" },
+  { "userId": "u-1003", "at": "2026-10-17T11:02:15Z", "event": "login_rejected", "detail": "client_too_old: версия 3.9.1, минимально поддерживаемая 4.0.0" },
+  { "userId": "u-1004", "at": "2026-10-17T12:26:00Z", "event": "sso_redirect", "detail": "переход на корпоративный IdP" },
+  { "userId": "u-1004", "at": "2026-10-17T12:27:45Z", "event": "sso_error", "detail": "sso_assertion_expired: ответ IdP пришёл позже 5 минут, возможен сдвиг часов" },
+  { "userId": "u-1005", "at": "2026-10-18T07:40:00Z", "event": "password_reset_requested", "detail": "письмо отправлено на darya.kozlova@example.com" },
+  { "userId": "u-1005", "at": "2026-10-18T07:41:20Z", "event": "email_bounced", "detail": "почтовый сервер получателя отклонил письмо: ящик переполнен" },
+  { "userId": "u-1005", "at": "2026-10-18T07:48:00Z", "event": "password_reset_requested", "detail": "письмо отправлено повторно" },
+  { "userId": "u-1005", "at": "2026-10-18T07:48:50Z", "event": "email_bounced", "detail": "почтовый сервер получателя отклонил письмо: ящик переполнен" }
+]

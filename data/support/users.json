@@ -1,0 +1,7 @@
+[
+  { "id": "u-1001", "name": "Анна Петрова", "email": "anna.petrova@example.com", "phone": "+7 900 *** 11 01", "plan": "Pro", "status": "active", "app": { "platform": "Android", "version": "4.2.0" }, "authMethods": ["password", "sms"], "registeredAt": "2025-03-14" },
+  { "id": "u-1002", "name": "Борис Орлов", "email": "boris.orlov@example.com", "phone": "+7 900 *** 11 02", "plan": "Free", "status": "locked", "app": { "platform": "iOS", "version": "4.1.3" }, "authMethods": ["password"], "registeredAt": "2024-11-02" },
+  { "id": "u-1003", "name": "Вера Смирнова", "email": "vera.smirnova@example.com", "phone": "+7 900 *** 11 03", "plan": "Free", "status": "active", "app": { "platform": "iOS", "version": "3.9.1" }, "authMethods": ["password"], "registeredAt": "2023-07-21" },
+  { "id": "u-1004", "name": "Глеб Иванов", "email": "gleb.ivanov@corp.example.com", "phone": "+7 900 *** 11 04", "plan": "Business", "status": "active", "app": { "platform": "Web", "version": "4.2.0" }, "authMethods": ["sso"], "registeredAt": "2025-09-01" },
+  { "id": "u-1005", "name": "Дарья Козлова", "email": "darya.kozlova@example.com", "phone": "+7 900 *** 11 05", "plan": "Pro", "status": "active", "app": { "platform": "Android", "version": "4.2.0" }, "authMethods": ["password"], "registeredAt": "2025-01-30" }
+]

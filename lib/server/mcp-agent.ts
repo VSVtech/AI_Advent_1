@@ -108,6 +108,32 @@ function validArguments(name: string, args: Record<string, unknown>): boolean {
       keys.every((key) => key === 'jobId' || key === 'date')
     );
   }
+  // Support tools are read-only; the server checks the id formats itself.
+  if (name === 'get_ticket') {
+    return (
+      Object.keys(args).length === 1 &&
+      typeof args.ticketId === 'string' &&
+      /^TCK-\d{4,6}$/u.test(args.ticketId)
+    );
+  }
+  if (name === 'get_user' || name === 'list_user_tickets') {
+    return (
+      Object.keys(args).length === 1 &&
+      typeof args.userId === 'string' &&
+      /^u-\d{3,6}$/u.test(args.userId)
+    );
+  }
+  if (name === 'get_auth_events') {
+    return (
+      Object.keys(args).every((key) => key === 'userId' || key === 'limit') &&
+      typeof args.userId === 'string' &&
+      /^u-\d{3,6}$/u.test(args.userId) &&
+      (args.limit === undefined ||
+        (Number.isInteger(args.limit) &&
+          (args.limit as number) >= 1 &&
+          (args.limit as number) <= 20))
+    );
+  }
   // Git tools are read-only; the server validates refs and paths itself.
   if (name === 'git_current_branch' || name === 'git_status') {
     return Object.keys(args).length === 0;

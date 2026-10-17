@@ -366,6 +366,7 @@ describe('/help command', () => {
     vi.stubEnv('MCP_TRAVEL_URL', 'not a url');
     vi.stubEnv('MCP_NOTES_URL', 'not a url');
     vi.stubEnv('MCP_GIT_URL', 'not a url');
+    vi.stubEnv('MCP_SUPPORT_URL', 'not a url');
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(searchResponse())

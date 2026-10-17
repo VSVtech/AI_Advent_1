@@ -5,6 +5,7 @@ import {
   BookOpen,
   Columns3,
   Cpu,
+  Headset,
   CloudRain,
   ListTodo,
   Plus,
@@ -202,6 +203,13 @@ export function AgentSidebar({
         >
           <Cpu className="size-4" aria-hidden="true" />
           Локальная LLM
+        </a>
+        <a
+          href="/support"
+          className="flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 text-sm text-white/80 hover:bg-white/[0.06]"
+        >
+          <Headset className="size-4" aria-hidden="true" />
+          Поддержка
         </a>
         <a
           href="/rag-comparison"

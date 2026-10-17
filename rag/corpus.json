@@ -57,6 +57,8 @@
     "lib/help-command.ts",
     "docs/day26-local-llm.md",
     "docs/day29-local-optimization.md",
-    "docs/day30-private-service.md"
+    "docs/day30-private-service.md",
+    "docs/support/faq.md",
+    "scripts/mcp-servers/support.mjs"
   ]
 }

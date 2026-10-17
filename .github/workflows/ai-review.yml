@@ -33,6 +33,7 @@ jobs:
         run: node scripts/review/review-pr.mjs --out review.md
 
       - name: Post review comment
+        if: ${{ always() && hashFiles('review.md') != '' }}
         uses: actions/github-script@v7
         with:
           script: |

@@ -226,9 +226,22 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   return comment;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
+export async function writeFailure(error, outFile) {
+  // The workflow posts this file, so the PR shows why there is no review.
+  await writeFile(
+    outFile,
+    `${REVIEW_MARKER}\n\n# 🤖 AI-ревью\n\n⚠️ Ревью не выполнено: ${String(error.message).split('\n')[0].slice(0, 300)}\n`,
+  );
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main().catch(async (error) => {
     console.error(`Ревью не выполнено: ${error.message}`);
+    const outIndex = process.argv.indexOf('--out');
+    if (outIndex >= 0) await writeFailure(error, process.argv[outIndex + 1]);
     process.exit(1);
   });
 }

@@ -101,6 +101,10 @@ import { HELP_PROMPT, parseHelpCommand } from '@/lib/help-command';
 import { SUPPORT_PROMPT, parseSupportCommand } from '@/lib/support-command';
 import { FILES_PROMPT, parseFilesCommand } from '@/lib/files-command';
 import {
+  DIAGNOSE_PROMPT,
+  parseDiagnoseCommand,
+} from '@/lib/diagnose-command';
+import {
   connectAgentMcp,
   type McpAgentConnection,
 } from '@/lib/server/mcp-agent';
@@ -328,6 +332,11 @@ export async function POST(request: Request): Promise<Response> {
         { question: parseHelpCommand(commandText), prompt: HELP_PROMPT, rag: true },
         { question: parseSupportCommand(commandText), prompt: SUPPORT_PROMPT, rag: true },
         { question: parseFilesCommand(commandText), prompt: FILES_PROMPT, rag: false },
+        {
+          question: parseDiagnoseCommand(commandText),
+          prompt: DIAGNOSE_PROMPT,
+          rag: true,
+        },
       ].find((item) => item.question !== null) ?? null)
     : null;
   const commandQuestion = command?.question ?? null;

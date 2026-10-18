@@ -54,10 +54,10 @@ if [[ -f "$mcp_ssh_key" ]] && command -v ssh >/dev/null 2>&1; then
   mcp_tunnel_pid=$!
 fi
 
-# Local MCP servers «Поездки», «Заметки», «Git», «Поддержка» and «Файлы»: the agent routes tool calls
+# Local MCP servers «Поездки», «Заметки», «Git», «Поддержка», «Файлы» and «RC-машинка»: the agent routes tool calls
 # between them and the capsule.
 local_mcp_pids=''
-for mcp_server in travel notes git support files; do
+for mcp_server in travel notes git support files rc-car; do
   node "scripts/mcp-servers/${mcp_server}.mjs" &
   local_mcp_pids="$local_mcp_pids $!"
 done

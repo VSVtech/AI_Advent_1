@@ -113,6 +113,11 @@ test('каталог показывает недоступность, если �
         name: 'Файлы',
         status: 'unavailable',
       }),
+      expect.objectContaining({
+        id: 'rc-car',
+        name: 'RC-машинка',
+        status: 'unavailable',
+      }),
     ],
   });
 });

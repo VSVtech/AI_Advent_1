@@ -195,7 +195,7 @@ describe('/files command', () => {
 
   it('sends the goal with the file prompt and without RAG', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'test-secret');
-    for (const name of ['CAPSULE', 'TRAVEL', 'NOTES', 'GIT', 'SUPPORT', 'FILES']) {
+    for (const name of ['CAPSULE', 'TRAVEL', 'NOTES', 'GIT', 'SUPPORT', 'FILES', 'RC_CAR']) {
       vi.stubEnv(`MCP_${name}_URL`, 'not a url');
     }
     const sse =

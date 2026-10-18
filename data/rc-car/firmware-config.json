@@ -1,0 +1,43 @@
+{
+  "source": "snapshot of rc_car.ino v1 (Arduino Nano + L293D + HC-06 + HC-SR04)",
+  "board": "Arduino Nano (ATmega328P, 16 МГц)",
+  "pins": {
+    "leftForward": { "pin": "D3", "timer": "Timer2", "pwmHz": 490 },
+    "leftBackward": { "pin": "D5", "timer": "Timer0", "pwmHz": 980 },
+    "rightForward": { "pin": "D6", "timer": "Timer0", "pwmHz": 980 },
+    "rightBackward": { "pin": "D9", "timer": "Timer1", "pwmHz": 490 },
+    "frontTrig": "D7",
+    "frontEcho": "D8"
+  },
+  "motors": {
+    "minPwm": 90,
+    "accelStepPerTick": 12,
+    "controlPeriodMs": 20,
+    "speedToPwm": "speed 1..255 maps linearly to minPwm..255"
+  },
+  "failsafeTimeoutMs": 500,
+  "telemetry": {
+    "periodMs": 250,
+    "format": "TLM_<frontCm>_<rearCm>_<motorLeft>_<motorRight>",
+    "motorUnits": "signed actual speed -255..255 after limits and ramp",
+    "noDistance": 200,
+    "measuresBatteryVoltage": false,
+    "measuresMotorCurrent": false
+  },
+  "sonar": {
+    "frontEnabled": true,
+    "rearEnabled": false,
+    "maxCm": 200,
+    "zones": [
+      { "fromCm": 100, "maxSpeed": 255 },
+      { "fromCm": 50, "maxSpeed": 160 },
+      { "fromCm": 20, "maxSpeed": 90 },
+      { "fromCm": 10, "maxSpeed": 35 },
+      { "fromCm": 0, "maxSpeed": 0 }
+    ]
+  },
+  "power": {
+    "motorSupply": "6 В аккумуляторная сборка (по описанию проекта)",
+    "driver": "L293D"
+  }
+}

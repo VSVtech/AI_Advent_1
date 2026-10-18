@@ -2,6 +2,7 @@
 /* oxlint-disable next/no-html-link-for-pages -- Vinext has no Next Link package in the test runtime. */
 
 import {
+  Activity,
   BookOpen,
   Columns3,
   Cpu,
@@ -210,6 +211,13 @@ export function AgentSidebar({
         >
           <Headset className="size-4" aria-hidden="true" />
           Поддержка
+        </a>
+        <a
+          href="/rc-car"
+          className="flex min-h-10 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 text-sm text-white/80 hover:bg-white/[0.06]"
+        >
+          <Activity className="size-4" aria-hidden="true" />
+          RC-машинка
         </a>
         <a
           href="/rag-comparison"

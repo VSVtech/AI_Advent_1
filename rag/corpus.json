@@ -59,6 +59,8 @@
     "docs/day29-local-optimization.md",
     "docs/day30-private-service.md",
     "docs/support/faq.md",
-    "scripts/mcp-servers/support.mjs"
+    "scripts/mcp-servers/support.mjs",
+    "docs/rc-car/hardware.md",
+    "docs/rc-car/troubleshooting.md"
   ]
 }

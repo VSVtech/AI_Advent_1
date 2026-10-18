@@ -39,7 +39,10 @@ function isCityArgument(value: unknown): boolean {
   );
 }
 
-function validArguments(name: string, args: Record<string, unknown>): boolean {
+export function validArguments(
+  name: string,
+  args: Record<string, unknown>,
+): boolean {
   if (name === 'ping' || name === 'server_time') {
     return Object.keys(args).length === 0;
   }
@@ -106,6 +109,32 @@ function validArguments(name: string, args: Record<string, unknown>): boolean {
         (typeof args.date === 'string' &&
           /^\d{4}-\d{2}-\d{2}$/u.test(args.date))) &&
       keys.every((key) => key === 'jobId' || key === 'date')
+    );
+  }
+  // RC car: read-only telemetry and oscilloscope measurements.
+  if (
+    name === 'rc_get_telemetry' ||
+    name === 'rc_get_firmware_config' ||
+    name === 'scope_list_channels'
+  ) {
+    return Object.keys(args).length === 0;
+  }
+  if (name === 'scope_measure' || name === 'scope_capture') {
+    const allowed =
+      name === 'scope_capture'
+        ? ['channel', 'windowMs', 'maxPoints']
+        : ['channel', 'windowMs'];
+    const inRange = (value: unknown, min: number, max: number) =>
+      value === undefined ||
+      (Number.isInteger(value) &&
+        (value as number) >= min &&
+        (value as number) <= max);
+    return (
+      Object.keys(args).every((key) => allowed.includes(key)) &&
+      Number.isInteger(args.channel) &&
+      inRange(args.channel, 1, 4) &&
+      inRange(args.windowMs, 5, 200) &&
+      inRange(args.maxPoints, 8, 400)
     );
   }
   // File tools: paths and the writable set are enforced by the server.

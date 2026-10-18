@@ -4,6 +4,7 @@ export const DEFAULT_MCP_NOTES_URL = 'http://127.0.0.1:18802/mcp';
 export const DEFAULT_MCP_GIT_URL = 'http://127.0.0.1:18805/mcp';
 export const DEFAULT_MCP_SUPPORT_URL = 'http://127.0.0.1:18806/mcp';
 export const DEFAULT_MCP_FILES_URL = 'http://127.0.0.1:18807/mcp';
+export const DEFAULT_MCP_RC_CAR_URL = 'http://127.0.0.1:18808/mcp';
 
 export function mcpCapsuleUrl(): URL {
   return new URL(process.env.MCP_CAPSULE_URL ?? DEFAULT_MCP_CAPSULE_URL);
@@ -88,5 +89,19 @@ export const MCP_SERVERS: readonly McpServerConfig[] = [
     hint: 'Запустите приложение через start.sh или выполните pnpm mcp:files.',
     url: () => new URL(process.env.MCP_FILES_URL ?? DEFAULT_MCP_FILES_URL),
     tools: ['fs_list', 'fs_read', 'fs_search', 'fs_replace', 'fs_write'],
+  },
+  {
+    id: 'rc-car',
+    name: 'RC-машинка',
+    location: 'локально · Streamable HTTP · симулятор',
+    hint: 'Запустите приложение через start.sh или выполните pnpm mcp:rc-car.',
+    url: () => new URL(process.env.MCP_RC_CAR_URL ?? DEFAULT_MCP_RC_CAR_URL),
+    tools: [
+      'rc_get_telemetry',
+      'rc_get_firmware_config',
+      'scope_list_channels',
+      'scope_measure',
+      'scope_capture',
+    ],
   },
 ];
